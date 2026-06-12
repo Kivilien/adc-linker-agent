@@ -18,8 +18,8 @@ LangChain 兼容的 Tool 对象，供 LangGraph Agent 调用。
 
 from langchain_core.tools import tool
 
-from adc_linker_agent.domain.properties import MolPropertyCalculator
 from adc_linker_agent.domain.ph_simulator import PhSimulator
+from adc_linker_agent.domain.properties import MolPropertyCalculator
 
 # ─── 单例实例 ───
 _calc = MolPropertyCalculator()

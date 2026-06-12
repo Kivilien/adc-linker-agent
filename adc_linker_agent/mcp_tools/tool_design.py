@@ -9,17 +9,15 @@ Week 7 新增，与 tool_linker.py（简单搜索）互补：
   - design_linker: 设计优化循环（Week 7）← 本文件
 """
 
-from typing import Optional
 
 from adc_linker_agent.domain.linker_designer import (
+    DesignResult,
     LinkerDesigner,
     LinkerDesignRequest,
-    DesignResult,
 )
 
-
 # ─── 单例（避免重复加载 CSV） ───
-_designer: Optional[LinkerDesigner] = None
+_designer: LinkerDesigner | None = None
 
 
 def _get_designer() -> LinkerDesigner:
@@ -31,7 +29,7 @@ def _get_designer() -> LinkerDesigner:
 
 def design_linker(
     target_ph: float = 5.0,
-    preferred_mechanism: Optional[str] = None,
+    preferred_mechanism: str | None = None,
     min_qed: float = 0.2,
     max_sas: float = 7.0,
     require_blood_stable: bool = True,

@@ -10,7 +10,6 @@ API 路由定义
 """
 
 import time
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from langchain_core.messages import HumanMessage
@@ -103,8 +102,8 @@ async def agent_query(request: AgentQueryRequest):
             raise HTTPException(
                 status_code=400,
                 detail="API key not configured. Set ANTHROPIC_API_KEY in .env file.",
-            )
-        raise HTTPException(status_code=500, detail=str(e))
+            ) from e
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get(

@@ -19,11 +19,9 @@ pH 稳定性模拟器（PhSimulator）
     - 实际 pKa 值受分子环境影响，此处使用典型值
 """
 
-from typing import Optional
 from dataclasses import dataclass, field
 
 from rdkit import Chem
-
 
 # ─── pH 敏感官能团定义 ───
 #
@@ -145,7 +143,7 @@ class PhSimulator:
         # → is_stable=False, labile_groups_found=["hydrazone"]
     """
 
-    def __init__(self, labile_groups: Optional[list[PhLabileGroup]] = None):
+    def __init__(self, labile_groups: list[PhLabileGroup] | None = None):
         """
         Args:
             labile_groups: 自定义 pH 敏感官能团列表。默认使用内置库。

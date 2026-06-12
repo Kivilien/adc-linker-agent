@@ -6,10 +6,8 @@ API 数据模型（Pydantic v2）
 """
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
-
 
 # ─── 请求模型 ───
 
@@ -56,7 +54,7 @@ class ToolCallInfo(BaseModel):
 
     name: str = Field(..., description="工具名称")
     args: dict = Field(default_factory=dict, description="工具参数")
-    result: Optional[dict] = Field(None, description="工具返回结果")
+    result: dict | None = Field(None, description="工具返回结果")
 
 
 class AgentMessage(BaseModel):
@@ -121,7 +119,7 @@ class ErrorResponse(BaseModel):
     """错误响应"""
 
     error: str = Field(..., description="错误描述")
-    detail: Optional[str] = Field(None, description="详细错误信息")
+    detail: str | None = Field(None, description="详细错误信息")
     timestamp: str = Field(
         default_factory=lambda: datetime.now().isoformat(),
         description="错误时间戳",

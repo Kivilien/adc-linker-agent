@@ -13,6 +13,6 @@ Usage:
     mcp.run(transport="stdio")
 """
 
-from adc_linker_agent.mcp_tools.server import mcp, main
+from adc_linker_agent.mcp_tools.server import main, mcp
 
 __all__ = ["mcp", "main"]

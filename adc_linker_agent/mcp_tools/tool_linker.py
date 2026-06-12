@@ -10,7 +10,6 @@ Week 7 将替换为可搜索的 CSV 数据库 + 模板化生成器。
     - 自动附加计算好的分子性质，Agent 无需额外调用 calculate_properties
 """
 
-from typing import Optional
 
 from adc_linker_agent.domain.properties import MolPropertyCalculator
 
@@ -31,7 +30,11 @@ KNOWN_LINKER_SCAFFOLDS: list[dict] = [
             "in lysosomes. PABC acts as a self-immolative spacer that releases the "
             "payload after enzymatic cleavage."
         ),
-        "drugs_using": ["Adcetris (brentuximab vedotin)", "Polivy (polatuzumab vedotin)", "Padcev (enfortumab vedotin)"],
+        "drugs_using": [
+            "Adcetris (brentuximab vedotin)",
+            "Polivy (polatuzumab vedotin)",
+            "Padcev (enfortumab vedotin)",
+        ],
     },
     {
         "name": "Hydrazone linker (simple)",
@@ -48,7 +51,10 @@ KNOWN_LINKER_SCAFFOLDS: list[dict] = [
     },
     {
         "name": "Mc-Val-Cit-PABC (maleimide)",
-        "smiles": "O=C1C=CC(=O)N1CCCCCC(=O)N[C@@H](C(C)C)C(=O)N[C@@H](CCCNC(N)=O)C(=O)NCc1ccc(O)cc1",
+        "smiles": (
+            "O=C1C=CC(=O)N1CCCCCC(=O)N[C@@H](C(C)C)C(=O)"
+            "N[C@@H](CCCNC(N)=O)C(=O)NCc1ccc(O)cc1"
+        ),
         "mechanism": "enzymatic",
         "enzyme": "Cathepsin B",
         "trigger": "Maleimide conjugation to antibody cysteine + cathepsin B cleavage",
@@ -125,9 +131,9 @@ KNOWN_LINKER_SCAFFOLDS: list[dict] = [
 
 
 def search_linker_scaffolds(
-    mechanism: Optional[str] = None,
-    min_molecular_weight: Optional[float] = None,
-    max_molecular_weight: Optional[float] = None,
+    mechanism: str | None = None,
+    min_molecular_weight: float | None = None,
+    max_molecular_weight: float | None = None,
 ) -> list[dict]:
     """
     Search known ADC linker scaffolds by mechanism and molecular weight range.

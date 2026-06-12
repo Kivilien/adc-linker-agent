@@ -14,11 +14,10 @@
     - 零外部依赖（只依赖 RDKit），可独立测试
 """
 
-from typing import Optional
 from functools import lru_cache
 
 from rdkit import Chem
-from rdkit.Chem import Descriptors, QED
+from rdkit.Chem import QED, Descriptors
 from rdkit.Contrib.SA_Score import sascorer
 
 

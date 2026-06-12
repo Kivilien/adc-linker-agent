@@ -11,14 +11,13 @@ API 文档:
   或 http://localhost:8000/redoc (ReDoc)
 """
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from adc_linker_agent.api.routes import router
-
 
 # ─── 应用生命周期 ───
 
@@ -37,7 +36,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         print("✅ API key configured, Agent ready.")
 
-    print(f"📡 API docs: http://localhost:8000/docs")
+    print("📡 API docs: http://localhost:8000/docs")
     yield
     # 关闭：无需清理
 

@@ -25,16 +25,13 @@ Week 7 核心模块：pH 感知的连接子设计优化循环。
 """
 
 import csv
-import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from adc_linker_agent.domain.ph_simulator import PhSimulator
 from adc_linker_agent.domain.properties import MolPropertyCalculator
-from adc_linker_agent.domain.ph_simulator import PhSimulator, PHYSIOLOGICAL_PH
-
 
 # ─── 数据模型 ───
 
@@ -58,7 +55,7 @@ class LinkerDesignRequest(BaseModel):
         ge=0, le=14,
         description="期望的裂解 pH（默认 5.0 = 溶酶体）",
     )
-    preferred_mechanism: Optional[str] = Field(
+    preferred_mechanism: str | None = Field(
         default=None,
         description="偏好的裂解机制：pH_sensitive / enzymatic / redox / non_cleavable",
     )
@@ -72,11 +69,11 @@ class LinkerDesignRequest(BaseModel):
         ge=1, le=10,
         description="最高合成难度阈值",
     )
-    min_molecular_weight: Optional[float] = Field(
+    min_molecular_weight: float | None = Field(
         default=None,
         description="最小分子量 (Da)",
     )
-    max_molecular_weight: Optional[float] = Field(
+    max_molecular_weight: float | None = Field(
         default=None,
         description="最大分子量 (Da)",
     )
@@ -140,7 +137,7 @@ class DesignResult:
     design_summary: str = ""
 
     @property
-    def top_candidate(self) -> Optional[LinkerCandidate]:
+    def top_candidate(self) -> LinkerCandidate | None:
         return self.candidates[0] if self.candidates else None
 
 
@@ -165,7 +162,7 @@ class LinkerDesigner:
     WEIGHT_DRUG_LIKENESS = 0.20       # 药物相似性
     WEIGHT_SYNTHETIC = 0.15           # 合成可行性
 
-    def __init__(self, csv_path: Optional[str] = None):
+    def __init__(self, csv_path: str | None = None):
         """
         Args:
             csv_path: 连接子骨架 CSV 文件路径。
@@ -271,9 +268,11 @@ class LinkerDesigner:
 
         for scaffold in self._scaffolds:
             # 机制筛选
-            if request.preferred_mechanism:
-                if scaffold.get("mechanism") != request.preferred_mechanism:
-                    continue
+            if (
+                request.preferred_mechanism
+                and scaffold.get("mechanism") != request.preferred_mechanism
+            ):
+                continue
 
             # pH 匹配度：骨架的 trigger_ph 应该接近 target_ph
             trigger_ph = scaffold.get("trigger_ph")
@@ -479,7 +478,7 @@ class LinkerDesigner:
 
 def quick_design(
     target_ph: float = 5.0,
-    preferred_mechanism: Optional[str] = None,
+    preferred_mechanism: str | None = None,
     max_results: int = 3,
 ) -> DesignResult:
     """

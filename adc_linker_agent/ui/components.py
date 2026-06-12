@@ -9,7 +9,6 @@ Streamlit UI 组件
 """
 
 import json
-from typing import Optional
 
 import streamlit as st
 
@@ -48,7 +47,6 @@ def render_property_table(properties: dict):
     # QED 进度条
     qed = properties.get("qed", 0)
     if isinstance(qed, (int, float)):
-        bar_color = "green" if qed >= 0.5 else "orange" if qed >= 0.3 else "red"
         st.progress(
             min(qed, 1.0),
             text=f"QED Score: {qed:.3f} {'✅ 药物样' if qed >= 0.5 else '⚠️ 需优化'}",
@@ -160,7 +158,7 @@ def render_linker_card(linker: dict):
             st.caption(f"MW: {mw} Da | LogP: {logp} | QED: {qed}")
 
 
-def render_tool_call(name: str, args: dict, result: Optional[str] = None):
+def render_tool_call(name: str, args: dict, result: str | None = None):
     """
     在可展开面板中渲染工具调用详情。
     """
@@ -239,6 +237,6 @@ def render_sidebar():
         """)
 
         st.divider()
-        st.caption(f"ADC Linker Agent v0.1.0 | 187 tests passing")
+        st.caption("ADC Linker Agent v0.1.0 | 187 tests passing")
 
     return mode, model

@@ -15,20 +15,15 @@ ADC Linker Agent — Streamlit 聊天界面
       如未配置，界面可以启动但 Agent 调用会返回错误提示。
 """
 
-import json
 import time
 from typing import Any
 
 import streamlit as st
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 
 from adc_linker_agent.agent.graph import get_agent
 from adc_linker_agent.ui.components import (
-    render_linker_card,
     render_message_content,
-    render_ph_all_phases,
-    render_ph_stability,
-    render_property_table,
     render_sidebar,
     render_tool_call,
 )

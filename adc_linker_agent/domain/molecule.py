@@ -8,13 +8,12 @@ ADC Linker Domain Models
 "一个连接子长什么样，包含哪些字段，字段之间有什么关系"。
 """
 
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
 
 
-class CleavageMechanism(str, Enum):
+class CleavageMechanism(StrEnum):
     """连接子裂解机制
 
     连接子在什么条件下"断开"释放毒素？
@@ -47,7 +46,7 @@ class Molecule(BaseModel):
         description="SMILES 分子表示字符串",
         examples=["CC(=O)Oc1ccccc1C(=O)O"],
     )
-    name: Optional[str] = Field(
+    name: str | None = Field(
         default=None,
         description="分子的通俗名称（如 '阿司匹林'、'Val-Cit-PABC'）",
     )
@@ -88,19 +87,19 @@ class Linker(Molecule):
         ...,
         description="连接子的裂解机制",
     )
-    ph_labile_low: Optional[float] = Field(
+    ph_labile_low: float | None = Field(
         default=None,
         ge=0,
         le=14,
         description="开始裂解的最低 pH（如 5.0）",
     )
-    ph_labile_high: Optional[float] = Field(
+    ph_labile_high: float | None = Field(
         default=None,
         ge=0,
         le=14,
         description="完全裂解的最高 pH（如 6.5）",
     )
-    target_payload: Optional[str] = Field(
+    target_payload: str | None = Field(
         default=None,
         description="该连接子常用于携带的毒素类型（如 'MMAE', 'SN-38'）",
     )
@@ -125,7 +124,7 @@ class Payload(Molecule):
         ...,
         description="毒素药物类别（如 'topoisomerase_I_inhibitor', 'tubulin_inhibitor'）",
     )
-    potency_ic50_nm: Optional[float] = Field(
+    potency_ic50_nm: float | None = Field(
         default=None,
         description="IC50 值 (nM)，数字越小毒性越强",
     )
@@ -140,21 +139,21 @@ class ADCLinker(BaseModel):
 
     linker: Linker = Field(..., description="连接子部分")
     payload: Payload = Field(..., description="荷载毒素")
-    logp: Optional[float] = Field(
+    logp: float | None = Field(
         default=None,
         description="亲脂性 (LogP)，理想范围 1-3",
     )
-    qed: Optional[float] = Field(
+    qed: float | None = Field(
         default=None,
         ge=0,
         le=1,
         description="药物相似性 (QED)，>0.5 较好",
     )
-    sas: Optional[float] = Field(
+    sas: float | None = Field(
         default=None,
         description="合成可及性 (SAS)，1=easy, 10=difficult",
     )
-    tpsa: Optional[float] = Field(
+    tpsa: float | None = Field(
         default=None,
         description="拓扑极性表面积 (TPSA)，影响水溶性",
     )
