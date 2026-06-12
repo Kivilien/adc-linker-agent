@@ -62,15 +62,20 @@ if "tool_history" not in st.session_state:
 # ─── API Key 检查 ───
 
 config = get_config()
-has_api_key = bool(config.anthropic_api_key)
+has_api_key = config.has_api_key
 
 if not has_api_key:
     st.warning(
-        "⚠️ 未配置 ANTHROPIC_API_KEY。\n\n"
+        "⚠️ 未配置 LLM API Key。\n\n"
         "在项目根目录创建 `.env` 文件并添加:\n"
-        "```\nANTHROPIC_API_KEY=sk-ant-...\n```\n"
-        "然后重启 Streamlit。\n\n"
-        "界面可以浏览，但 Agent 调用需要 API Key。"
+        "```\n"
+        "# DeepSeek:\n"
+        "DEEPSEEK_API_KEY=sk-...\n"
+        "LLM_PROVIDER=deepseek\n\n"
+        "# 或 Anthropic:\n"
+        "ANTHROPIC_API_KEY=sk-ant-...\n"
+        "```\n"
+        "然后重启 Streamlit。"
     )
 
 # ─── 显示历史消息 ───
@@ -227,8 +232,8 @@ if not st.session_state.messages and not has_api_key:
     st.info("""
     ### 🚀 快速开始
 
-    1. 在项目根目录创建 `.env` 文件
-    2. 添加 `ANTHROPIC_API_KEY=sk-ant-...`
-    3. 重启 Streamlit：`streamlit run adc_linker_agent/ui/app.py`
-    4. 在聊天框输入查询！
+    1. 复制 `.env.template` → `.env`
+    2. 填入 DeepSeek 或 Anthropic API Key
+    3. 重启：`streamlit run adc_linker_agent/ui/app.py`
+    4. 聊天框输入查询！
     """)
