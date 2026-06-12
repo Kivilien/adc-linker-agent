@@ -15,7 +15,7 @@ import pytest
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from adc_linker_agent.agent.graph import create_agent_graph
+from adc_linker_agent.agent.graph import create_single_agent_graph
 from adc_linker_agent.agent.state import AgentState
 
 
@@ -28,12 +28,12 @@ class TestGraphStructure:
 
     def test_graph_compiles(self):
         """Graph 应该成功编译"""
-        graph = create_agent_graph()
+        graph = create_single_agent_graph()
         assert graph is not None
 
     def test_graph_has_expected_nodes(self):
         """Graph 应该包含 chatbot 和 tools 节点"""
-        graph = create_agent_graph()
+        graph = create_single_agent_graph()
         nodes = graph.get_graph().nodes
         assert "chatbot" in nodes
         assert "tools" in nodes
@@ -42,7 +42,7 @@ class TestGraphStructure:
 
     def test_graph_has_start_to_chatbot_edge(self):
         """START 应该连接到 chatbot"""
-        graph = create_agent_graph()
+        graph = create_single_agent_graph()
         edges = graph.get_graph().edges
         start_edges = [e for e in edges if e.source == "__start__"]
         assert len(start_edges) == 1
@@ -50,7 +50,7 @@ class TestGraphStructure:
 
     def test_graph_has_tools_to_chatbot_edge(self):
         """tools 应该连接回 chatbot（循环边）"""
-        graph = create_agent_graph()
+        graph = create_single_agent_graph()
         edges = graph.get_graph().edges
         tools_edges = [e for e in edges if e.source == "tools"]
         assert any(e.target == "chatbot" for e in tools_edges), (
@@ -59,7 +59,7 @@ class TestGraphStructure:
 
     def test_chatbot_has_conditional_edges(self):
         """chatbot 应该有条件边（到 tools 或 END）"""
-        graph = create_agent_graph()
+        graph = create_single_agent_graph()
         edges = graph.get_graph().edges
         chatbot_cond = [e for e in edges if e.source == "chatbot" and e.conditional]
         assert len(chatbot_cond) >= 2, (
@@ -68,13 +68,13 @@ class TestGraphStructure:
 
     def test_graph_is_runnable(self):
         """编译后的 graph 应该有 invoke 和 stream 方法"""
-        graph = create_agent_graph()
+        graph = create_single_agent_graph()
         assert hasattr(graph, "invoke")
         assert hasattr(graph, "stream")
 
     def test_all_edges_are_valid(self):
         """所有边的源和目标节点都应存在于图中"""
-        graph = create_agent_graph()
+        graph = create_single_agent_graph()
         nodes = graph.get_graph().nodes
         for edge in graph.get_graph().edges:
             assert edge.source in nodes, f"Edge source '{edge.source}' not in graph"
@@ -153,7 +153,7 @@ class TestReActLoopCompleteness:
         ReAct 循环要求: chatbot → tools → chatbot 形成闭环。
         当没有 tool_calls 时 chatbot → END。
         """
-        graph = create_agent_graph()
+        graph = create_single_agent_graph()
         edges = graph.get_graph().edges
 
         # chatbot → tools (conditional)
@@ -174,12 +174,12 @@ class TestAgentGraphConfig:
 
     def test_create_graph_with_default_model(self):
         """默认模型创建 graph 不抛异常"""
-        graph = create_agent_graph()
+        graph = create_single_agent_graph()
         assert graph is not None
 
     def test_create_graph_with_specific_model(self):
         """指定模型名称创建 graph"""
-        graph = create_agent_graph(model_name="claude-fable-5")
+        graph = create_single_agent_graph(model_name="claude-fable-5")
         assert graph is not None
 
     def test_config_structure(self):
@@ -196,6 +196,6 @@ class TestAgentGraphConfig:
 
     def test_memory_saver_included(self):
         """编译后的 graph 应该包含 MemorySaver（checkpointer）"""
-        graph = create_agent_graph()
+        graph = create_single_agent_graph()
         # 有 checkpointer 意味着支持多轮对话记忆
         assert graph.checkpointer is not None

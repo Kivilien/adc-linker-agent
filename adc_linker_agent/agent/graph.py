@@ -1,35 +1,43 @@
 """
-Agent Graph 构建
+Agent Graph 构建（Week 4 + Week 5）
 
-这是 ADC Linker Agent 的核心编排逻辑。
-用 LangGraph StateGraph 构建 ReAct 循环:
+Week 4: 单 Agent ReAct 循环
+    START → chatbot ↔ tools → END
 
-    START → chatbot ←→ tools
-              ↓ (no tool_calls)
-             END
+Week 5: 多 Agent 监督者模式
+    START → supervisor → [property_agent / ph_agent / linker_agent] → supervisor → END
 
-user: "计算阿司匹林的所有性质" →
-  chatbot: AIMessage(tool_calls=[validate_smiles("CC(=O)Oc1ccccc1C(=O)O")]) →
-  tools:   ToolMessage(result={valid: true, formula: C9H8O4, ...}) →
-  chatbot: AIMessage(tool_calls=[calculate_properties("...")]) →
-  tools:   ToolMessage(result={logp: 1.31, qed: 0.78, ...}) →
-  chatbot: AIMessage(content="阿司匹林的分子性质如下：...")
+使用方式:
+    # 单 Agent (Week 4)
+    graph = create_single_agent_graph()
 
-Week 5 扩展: 这个简单图会升级为 Supervisor + 3 Specialists 的多 Agent 图。
+    # 多 Agent (Week 5)
+    graph = create_multi_agent_graph()
 """
 
-from typing import Optional
+from typing import Any, Literal
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
+from pydantic import BaseModel
 
 from adc_linker_agent.agent.nodes import create_chatbot_node
-from adc_linker_agent.agent.state import AgentState
+from adc_linker_agent.agent.specialists import (
+    linker_agent,
+    ph_agent,
+    property_agent,
+)
+from adc_linker_agent.agent.state import AgentState, MultiAgentState, SpecialistName
 from adc_linker_agent.agent.tools import ALL_TOOLS
 
 
-def create_agent_graph(model_name: str = "claude-fable-5") -> StateGraph:
+# ═══════════════════════════════════════════════════════════════
+# Week 4: 单 Agent ReAct 图
+# ═══════════════════════════════════════════════════════════════
+
+
+def create_single_agent_graph(model_name: str = "claude-fable-5") -> Any:
     """
     构建单 Agent ReAct 图。
 
@@ -38,83 +46,239 @@ def create_agent_graph(model_name: str = "claude-fable-5") -> StateGraph:
                            ↓ (无 tool_calls)
                            END
 
-    学习点:
-        - StateGraph(AgentState): 图的"骨架"，定义状态结构
-        - add_node(): 添加处理节点（函数/可调用对象）
-        - add_edge(START, "chatbot"): 入口边
-        - add_conditional_edges(): 条件路由，根据 LLM 回复决定去向
-        - compile(): 编译为可执行的 Runnable
+    Args:
+        model_name: Anthropic 模型名称
+
+    Returns:
+        编译后的 LangGraph Runnable
+    """
+    workflow = StateGraph(AgentState)
+    workflow.add_node("chatbot", create_chatbot_node(model_name))
+    workflow.add_node("tools", ToolNode(ALL_TOOLS))
+    workflow.add_edge(START, "chatbot")
+    workflow.add_conditional_edges("chatbot", tools_condition)
+    workflow.add_edge("tools", "chatbot")
+
+    memory = MemorySaver()
+    return workflow.compile(checkpointer=memory)
+
+
+# ═══════════════════════════════════════════════════════════════
+# Week 5: 多 Agent 监督者模式
+# ═══════════════════════════════════════════════════════════════
+
+
+# ─── Supervisor 路由决策模型 ───
+
+
+class SupervisorDecision(BaseModel):
+    """
+    Supervisor 的路由决策。
+
+    next 字段决定下一个被调用的 Agent:
+      - "property_agent": 需要分子性质计算
+      - "ph_agent": 需要 pH 稳定性分析
+      - "linker_agent": 需要连接子设计/搜索
+      - "FINISH": 任务完成，给出最终答案
+    """
+
+    next: Literal["property_agent", "ph_agent", "linker_agent", "FINISH"]
+    reasoning: str  # 为什么选择这个 Agent（方便调试和日志）
+
+
+# ─── Supervisor 系统提示 ───
+
+SUPERVISOR_SYSTEM_PROMPT = """You are the ADC Linker Design Supervisor.
+
+Your role: analyze the user's request and route it to the right specialist.
+
+Your team:
+- property_agent: Calculates molecular properties (LogP, QED, SAS, TPSA, Lipinski).
+  Route HERE when the user asks about molecular properties, drug-likeness, or
+  needs property calculations for a SMILES.
+
+- ph_agent: Analyzes pH-dependent stability across physiological conditions.
+  Route HERE when the user asks about pH stability, cleavage conditions,
+  or needs to check if a linker is stable in blood / labile in lysosome.
+
+- linker_agent: Designs and searches ADC linker scaffolds.
+  Route HERE when the user wants to design a new linker, search known scaffolds,
+  or needs comprehensive linker evaluation. This agent has ALL tools.
+
+Routing rules:
+1. For "design a linker..." or "find linkers..." → linker_agent
+2. For "calculate properties of..." or "what is LogP of..." → property_agent
+3. For "is this stable at pH..." or "check pH..." → ph_agent
+4. For complex requests spanning multiple domains:
+   - Start with property_agent for SMILES validation and basic properties
+   - Then route to ph_agent for stability analysis
+   - Finally route to linker_agent for design recommendations
+5. After a specialist returns its results, review them and decide:
+   - If more analysis is needed from another specialist → route there
+   - If the task is complete → FINISH and provide a final synthesis
+
+When finishing:
+- Summarize what each specialist found
+- Highlight key findings (good/bad properties, stability concerns)
+- Give actionable recommendations
+- Use the same language as the user (Chinese if they wrote in Chinese)
+"""
+
+
+def _create_supervisor_node(model_name: str = "claude-fable-5") -> Any:
+    """
+    创建 Supervisor 节点。
+
+    Supervisor 使用 structured output 确保路由决策格式正确。
+    不绑定任何工具——Supervisor 只做路由，不执行工具。
+    """
+    from langchain_anthropic import ChatAnthropic
+    from langchain_core.messages import SystemMessage
+
+    model = ChatAnthropic(
+        model=model_name,
+        temperature=0.3,
+        max_tokens=1024,
+    ).with_structured_output(SupervisorDecision)
+
+    def supervisor_node(state: MultiAgentState) -> dict:
+        """Supervisor: 分析对话历史，决定下一步路由。"""
+        messages = list(state["messages"])
+
+        # 第一次调用时注入系统提示
+        if not messages or not any(
+            isinstance(m, SystemMessage) and "ADC Linker Design Supervisor" in str(m.content)
+            for m in messages
+        ):
+            messages = [SystemMessage(content=SUPERVISOR_SYSTEM_PROMPT)] + messages
+
+        try:
+            decision: SupervisorDecision = model.invoke(messages)
+        except Exception:
+            # 如果 structured output 失败，回退到 FINISH
+            return {"next": "FINISH"}
+
+        return {"next": decision.next}
+
+    return supervisor_node
+
+
+def _route_supervisor_decision(state: MultiAgentState) -> SpecialistName:
+    """
+    路由函数：从 state["next"] 读取 supervisor 的决策。
+
+    这是 add_conditional_edges 的回调函数。
+    返回下一个要执行的节点名称。
+    """
+    next_agent = state.get("next", "FINISH")
+    if next_agent not in ("property_agent", "ph_agent", "linker_agent", "FINISH"):
+        return "FINISH"
+    return next_agent  # type: ignore[return-value]
+
+
+def create_multi_agent_graph(model_name: str = "claude-fable-5") -> Any:
+    """
+    构建多 Agent 监督者图。
+
+    架构:
+                     ┌──────────────┐
+              START →│  supervisor  │ ←──────────┐
+                     └──┬───┬───┬──┘             │
+                        │   │   │                 │
+               ┌────────┘   │   └────────┐        │
+               ▼            ▼            ▼        │
+        property_agent  ph_agent  linker_agent    │
+               │            │            │        │
+               └────────────┴────────────┘────────┘
+                              │
+                           FINISH
+
+    流程示例:
+      User: "设计一个 pH 5.5 裂解、释放喜树碱的连接子"
+      → supervisor: next=linker_agent ("design request")
+      → linker_agent: 搜索骨架 → 计算性质 → 评估 pH → 返回推荐
+      → supervisor: next=ph_agent ("verify pH sensitivity")
+      → ph_agent: 验证 pH 5.5 稳定性 → 返回确认
+      → supervisor: next=FINISH ("task complete, synthesize findings")
 
     Args:
         model_name: Anthropic 模型名称
 
     Returns:
-        编译后的 LangGraph Runnable，可通过 .invoke(state) 或 .stream(state) 执行
+        编译后的 LangGraph Runnable
     """
     # ─── 1. 创建图 ───
-    workflow = StateGraph(AgentState)
+    workflow = StateGraph(MultiAgentState)
 
     # ─── 2. 添加节点 ───
-    # chatbot: LLM 调用节点（bind_tools 后 LLM 能自主决定是否调用工具）
-    workflow.add_node("chatbot", create_chatbot_node(model_name))
+    # supervisor: 路由决策节点
+    workflow.add_node("supervisor", _create_supervisor_node(model_name))
 
-    # tools: 工具执行节点（LangGraph 内置 ToolNode）
-    # ToolNode 自动:
-    #   1. 读取 AIMessage 中的 tool_calls
-    #   2. 调用对应的 Python 函数
-    #   3. 返回 ToolMessage 结果
-    workflow.add_node("tools", ToolNode(ALL_TOOLS))
+    # 三个专长 Agent
+    workflow.add_node("property_agent", property_agent)
+    workflow.add_node("ph_agent", ph_agent)
+    workflow.add_node("linker_agent", linker_agent)
 
     # ─── 3. 添加边 ───
-    # 入口: 用户消息直接进入 chatbot
-    workflow.add_edge(START, "chatbot")
+    # 入口: 用户消息进入 supervisor
+    workflow.add_edge(START, "supervisor")
 
-    # 条件路由: chatbot 的输出决定下一步
-    # tools_condition 的逻辑:
-    #   if AIMessage has tool_calls → route to "tools"
-    #   else → route to END
+    # 条件路由: supervisor 根据 next 字段决定下一步
     workflow.add_conditional_edges(
-        "chatbot",
-        tools_condition,
-        # tools_condition 返回 "tools" 或 "__end__"
+        "supervisor",
+        _route_supervisor_decision,
+        {
+            "property_agent": "property_agent",
+            "ph_agent": "ph_agent",
+            "linker_agent": "linker_agent",
+            "FINISH": END,
+        },
     )
 
-    # 循环: tools 执行完后总是回到 chatbot，让 LLM 看到结果后决定下一步
-    workflow.add_edge("tools", "chatbot")
+    # 所有专长 Agent 完成后返回 supervisor（循环）
+    workflow.add_edge("property_agent", "supervisor")
+    workflow.add_edge("ph_agent", "supervisor")
+    workflow.add_edge("linker_agent", "supervisor")
 
-    # ─── 4. 编译（带内存检查点） ───
-    # MemorySaver 提供会话内记忆（同一次对话中的多轮交互）
-    # Week 6 会替换为持久化存储
+    # ─── 4. 编译 ───
     memory = MemorySaver()
     graph = workflow.compile(checkpointer=memory)
 
     return graph
 
 
-# ─── 便捷函数 ───
+# ═══════════════════════════════════════════════════════════════
+# 便捷函数
+# ═══════════════════════════════════════════════════════════════
 
 
 def get_agent(
     model_name: str = "claude-fable-5",
     thread_id: str = "default",
-) -> tuple[StateGraph, dict]:
+    mode: Literal["single", "multi"] = "multi",
+) -> tuple[Any, dict]:
     """
     获取 Agent 图和运行配置。
 
     Args:
         model_name: 模型名称
-        thread_id: 对话线程 ID（同一线程共享记忆）
+        thread_id: 对话线程 ID
+        mode: "single" (Week 4) 或 "multi" (Week 5, 默认)
 
     Returns:
         (graph, config) — 直接传给 graph.invoke(state, config)
 
     使用方式:
-        graph, config = get_agent()
-        result = graph.invoke(
-            {"messages": [HumanMessage(content="计算苯的性质")]},
-            config,
-        )
+        from langchain_core.messages import HumanMessage
+
+        graph, config = get_agent(mode="multi")
+        state = {"messages": [HumanMessage(content="设计 pH 5.5 裂解的连接子")]}
+        result = graph.invoke(state, config)
     """
-    graph = create_agent_graph(model_name)
+    if mode == "single":
+        graph = create_single_agent_graph(model_name)
+    else:
+        graph = create_multi_agent_graph(model_name)
+
     config = {"configurable": {"thread_id": thread_id}}
     return graph, config
