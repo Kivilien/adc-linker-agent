@@ -16,9 +16,9 @@ ReAct 循环只有两个节点:
 
 from typing import Any
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage
 
+from adc_linker_agent.agent.model_factory import create_model
 from adc_linker_agent.agent.state import AgentState
 from adc_linker_agent.agent.tools import ALL_TOOLS
 
@@ -52,26 +52,15 @@ ADC linker design rule of thumb:
 """
 
 
-def create_chatbot_node(model_name: str = "claude-fable-5") -> Any:
+def create_chatbot_node() -> Any:
     """
     创建一个绑定了工具集的 LLM 调用节点。
 
-    Args:
-        model_name: Anthropic 模型名称。
-                    默认用 Fable 5（最新 Claude 模型）。
-
-    Returns:
-        一个可放入 StateGraph.add_node() 的函数
-
     使用方式:
-        chatbot = create_chatbot_node("claude-fable-5")
+        chatbot = create_chatbot_node()
         workflow.add_node("chatbot", chatbot)
     """
-    model = ChatAnthropic(
-        model=model_name,
-        temperature=0.2,  # 低温度 = 更确定性的工具调用
-        max_tokens=4096,
-    ).bind_tools(ALL_TOOLS)
+    model = create_model(temperature=0.2, tools=ALL_TOOLS)
 
     def chatbot_node(state: AgentState) -> dict:
         """

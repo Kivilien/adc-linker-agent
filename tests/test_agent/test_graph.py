@@ -177,9 +177,9 @@ class TestAgentGraphConfig:
         graph = create_single_agent_graph()
         assert graph is not None
 
-    def test_create_graph_with_specific_model(self):
-        """指定模型名称创建 graph"""
-        graph = create_single_agent_graph(model_name="claude-fable-5")
+    def test_create_graph(self):
+        """创建 graph（模型由 .env 配置决定）"""
+        graph = create_single_agent_graph()
         assert graph is not None
 
     def test_config_structure(self):

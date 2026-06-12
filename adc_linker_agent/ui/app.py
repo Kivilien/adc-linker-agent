@@ -48,7 +48,7 @@ st.caption(
 
 # ─── 侧边栏配置 ───
 
-mode, model = render_sidebar()
+mode = render_sidebar()
 
 # ─── 初始化 session state ───
 
@@ -120,7 +120,6 @@ if prompt := st.chat_input("输入你的 ADC 连接子相关查询..."):
             try:
                 with st.spinner("Agent 思考中..."):
                     graph, graph_config = get_agent(
-                        model_name=model,
                         thread_id=st.session_state.thread_id,
                         mode=mode,  # type: ignore[arg-type]
                     )

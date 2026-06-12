@@ -13,16 +13,16 @@ class TestConfig:
     def test_config_defaults(self):
         """默认值应该可用"""
         config = Config()
-        assert config.llm_model == "claude-3-5-haiku-20241022"
         assert config.mcp_host == "0.0.0.0"
         assert config.mcp_port == 8000
+        # llm_model 取决于 .env 是否有 DEEPSEEK_API_KEY
 
     def test_config_validate_without_api_key(self):
         """没有 API key 时 validate 应该报告缺失"""
         config = Config()
-        if not config.anthropic_api_key:
-            missing = config.validate()
-            assert "ANTHROPIC_API_KEY" in missing[0]
+        missing = config.validate()
+        if missing:
+            assert "API_KEY" in missing[0]
 
     def test_project_root_exists(self):
         """项目根目录应该存在"""

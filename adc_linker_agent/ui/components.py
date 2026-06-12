@@ -205,6 +205,9 @@ def render_sidebar():
     with st.sidebar:
         st.title("⚙️ 配置")
 
+        from adc_linker_agent.utils.config import get_config
+        config = get_config()
+
         mode = st.radio(
             "Agent 模式",
             options=["multi", "single"],
@@ -212,11 +215,7 @@ def render_sidebar():
             help="Multi-Agent: Supervisor+3专长 / Single: ReAct循环",
         )
 
-        model = st.selectbox(
-            "LLM 模型",
-            options=["claude-fable-5", "claude-sonnet-4-6", "claude-haiku-4-5"],
-            index=0,
-        )
+        st.caption(f"🔌 提供商: **{config.llm_provider}** | 模型: **{config.llm_model}**")
 
         st.divider()
 
@@ -239,4 +238,4 @@ def render_sidebar():
         st.divider()
         st.caption("ADC Linker Agent v0.1.0 | 187 tests passing")
 
-    return mode, model
+    return mode

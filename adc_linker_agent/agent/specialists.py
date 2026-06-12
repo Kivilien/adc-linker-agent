@@ -21,9 +21,9 @@
 
 from typing import Any
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 
+from adc_linker_agent.agent.model_factory import create_model
 from adc_linker_agent.agent.state import MultiAgentState
 from adc_linker_agent.agent.tools import (
     ALL_TOOLS,
@@ -167,7 +167,6 @@ def create_specialist_node(
     name: str,
     system_prompt: str,
     tools: list[Any],
-    model_name: str = "claude-fable-5",
 ) -> Any:
     """
     创建一个专长 Agent 节点。
@@ -179,16 +178,11 @@ def create_specialist_node(
         name: Agent 名称（用于日志和路由）
         system_prompt: 专长 Agent 的系统提示
         tools: 该 Agent 可用的工具列表（最小权限分配）
-        model_name: LLM 模型名
 
     Returns:
         可放入 StateGraph.add_node() 的节点函数
     """
-    model = ChatAnthropic(
-        model=model_name,
-        temperature=0.2,
-        max_tokens=4096,
-    ).bind_tools(tools)
+    model = create_model(temperature=0.2, tools=tools)
 
     def specialist_node(state: MultiAgentState) -> dict:
         """专长 Agent 节点: 处理分配的任务并返回完整结果。"""

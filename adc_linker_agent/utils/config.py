@@ -2,6 +2,7 @@
 配置管理模块
 
 加载 .env 文件中的环境变量，提供类型安全的配置访问。
+支持 Anthropic 和 DeepSeek（OpenAI 兼容）两种 LLM 提供商。
 """
 
 import os
@@ -11,15 +12,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-# 加载项目根目录的 .env 文件
 def _find_project_root() -> Path:
     """向上查找项目根目录（包含 pyproject.toml 或 .env 的目录）"""
     current = Path(__file__).resolve().parent
-    for _ in range(10):  # 最多向上找 10 层
+    for _ in range(10):
         if (current / ".env").exists() or (current / "pyproject.toml").exists():
             return current
         current = current.parent
-    # Fallback: 使用当前文件所在的包根目录
     return Path(__file__).resolve().parent.parent.parent
 
 
@@ -30,32 +29,62 @@ load_dotenv(PROJECT_ROOT / ".env")
 class Config:
     """应用配置
 
-    使用方式:
-        from adc_linker_agent.utils.config import get_config
-        config = get_config()
-        print(config.anthropic_api_key)  # 从 .env 加载
+    支持两种 LLM 提供商:
+      - Anthropic: 设置 ANTHROPIC_API_KEY
+      - DeepSeek: 设置 DEEPSEEK_API_KEY（OpenAI 兼容 API）
+
+    优先级: DEEPSEEK_API_KEY > ANTHROPIC_API_KEY
     """
 
     def __init__(self) -> None:
+        # ─── API Keys ───
         self.anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
-        self.llm_model: str = os.getenv("LLM_MODEL", "claude-3-5-haiku-20241022")
-        self.synthesis_model: str = os.getenv(
-            "SYNTHESIS_MODEL", "claude-3-5-sonnet-20241022"
+        self.deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
+        self.deepseek_base_url: str = os.getenv(
+            "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
         )
+
+        # ─── 模型配置 ───
+        self.llm_provider: str = os.getenv(
+            "LLM_PROVIDER",
+            "deepseek" if self.deepseek_api_key else "anthropic",
+        )
+        self.llm_model: str = os.getenv(
+            "LLM_MODEL",
+            "deepseek-chat" if self.deepseek_api_key else "claude-fable-5",
+        )
+        self.synthesis_model: str = os.getenv(
+            "SYNTHESIS_MODEL",
+            "deepseek-reasoner" if self.deepseek_api_key else "claude-fable-5",
+        )
+
+        # ─── 服务配置 ───
         self.mcp_host: str = os.getenv("MCP_HOST", "0.0.0.0")
         self.mcp_port: int = int(os.getenv("MCP_PORT", "8000"))
         self.project_root: Path = PROJECT_ROOT
         self.data_dir: Path = PROJECT_ROOT / "data"
 
+    @property
+    def has_api_key(self) -> bool:
+        """是否有任何可用的 API Key"""
+        return bool(self.anthropic_api_key or self.deepseek_api_key)
+
+    @property
+    def effective_api_key(self) -> str:
+        """返回实际使用的 API Key"""
+        return self.deepseek_api_key or self.anthropic_api_key
+
     def validate(self) -> list[str]:
-        """检查必要的配置是否齐全。返回缺失项的列表。"""
+        """检查必要的配置是否齐全。"""
         missing = []
-        if not self.anthropic_api_key:
-            missing.append("ANTHROPIC_API_KEY (set in .env)")
+        if not self.has_api_key:
+            missing.append(
+                "DEEPSEEK_API_KEY or ANTHROPIC_API_KEY (set in .env)"
+            )
         return missing
 
 
 @lru_cache(maxsize=1)
 def get_config() -> Config:
-    """获取配置的单例（lru_cache 确保只初始化一次）"""
+    """获取配置的单例"""
     return Config()

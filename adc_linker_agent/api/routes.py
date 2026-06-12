@@ -83,7 +83,6 @@ async def agent_query(request: AgentQueryRequest):
     """处理 Agent 查询请求。"""
     try:
         graph, config = get_agent(
-            model_name=request.model_name,
             thread_id=request.thread_id,
             mode=request.mode,  # type: ignore[arg-type]
         )
@@ -116,7 +115,7 @@ async def health_check():
     from adc_linker_agent.utils.config import get_config
 
     config = get_config()
-    has_key = bool(config.anthropic_api_key)
+    has_key = config.has_api_key
 
     return HealthResponse(
         status="ok" if has_key else "no_api_key",

@@ -22,6 +22,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 from pydantic import BaseModel
 
+from adc_linker_agent.agent.model_factory import create_model
 from adc_linker_agent.agent.nodes import create_chatbot_node
 from adc_linker_agent.agent.specialists import (
     linker_agent,
@@ -36,7 +37,7 @@ from adc_linker_agent.agent.tools import ALL_TOOLS
 # ═══════════════════════════════════════════════════════════════
 
 
-def create_single_agent_graph(model_name: str = "claude-fable-5") -> Any:
+def create_single_agent_graph() -> Any:
     """
     构建单 Agent ReAct 图。
 
@@ -45,14 +46,11 @@ def create_single_agent_graph(model_name: str = "claude-fable-5") -> Any:
                            ↓ (无 tool_calls)
                            END
 
-    Args:
-        model_name: Anthropic 模型名称
-
     Returns:
         编译后的 LangGraph Runnable
     """
     workflow = StateGraph(AgentState)
-    workflow.add_node("chatbot", create_chatbot_node(model_name))
+    workflow.add_node("chatbot", create_chatbot_node())
     workflow.add_node("tools", ToolNode(ALL_TOOLS))
     workflow.add_edge(START, "chatbot")
     workflow.add_conditional_edges("chatbot", tools_condition)
@@ -124,21 +122,20 @@ When finishing:
 """
 
 
-def _create_supervisor_node(model_name: str = "claude-fable-5") -> Any:
+def _create_supervisor_node() -> Any:
     """
     创建 Supervisor 节点。
 
     Supervisor 使用 structured output 确保路由决策格式正确。
     不绑定任何工具——Supervisor 只做路由，不执行工具。
     """
-    from langchain_anthropic import ChatAnthropic
     from langchain_core.messages import SystemMessage
 
-    model = ChatAnthropic(
-        model=model_name,
+    model = create_model(
         temperature=0.3,
         max_tokens=1024,
-    ).with_structured_output(SupervisorDecision)
+        output_schema=SupervisorDecision,
+    )
 
     def supervisor_node(state: MultiAgentState) -> dict:
         """Supervisor: 分析对话历史，决定下一步路由。"""
@@ -175,7 +172,7 @@ def _route_supervisor_decision(state: MultiAgentState) -> SpecialistName:
     return next_agent  # type: ignore[return-value]
 
 
-def create_multi_agent_graph(model_name: str = "claude-fable-5") -> Any:
+def create_multi_agent_graph() -> Any:
     """
     构建多 Agent 监督者图。
 
@@ -192,16 +189,7 @@ def create_multi_agent_graph(model_name: str = "claude-fable-5") -> Any:
                               │
                            FINISH
 
-    流程示例:
-      User: "设计一个 pH 5.5 裂解、释放喜树碱的连接子"
-      → supervisor: next=linker_agent ("design request")
-      → linker_agent: 搜索骨架 → 计算性质 → 评估 pH → 返回推荐
-      → supervisor: next=ph_agent ("verify pH sensitivity")
-      → ph_agent: 验证 pH 5.5 稳定性 → 返回确认
-      → supervisor: next=FINISH ("task complete, synthesize findings")
-
-    Args:
-        model_name: Anthropic 模型名称
+    模型由 .env 中的 LLM_PROVIDER 决定（deepseek / anthropic）。
 
     Returns:
         编译后的 LangGraph Runnable
@@ -211,7 +199,7 @@ def create_multi_agent_graph(model_name: str = "claude-fable-5") -> Any:
 
     # ─── 2. 添加节点 ───
     # supervisor: 路由决策节点
-    workflow.add_node("supervisor", _create_supervisor_node(model_name))
+    workflow.add_node("supervisor", _create_supervisor_node())
 
     # 三个专长 Agent
     workflow.add_node("property_agent", property_agent)
@@ -252,15 +240,15 @@ def create_multi_agent_graph(model_name: str = "claude-fable-5") -> Any:
 
 
 def get_agent(
-    model_name: str = "claude-fable-5",
     thread_id: str = "default",
     mode: Literal["single", "multi"] = "multi",
 ) -> tuple[Any, dict]:
     """
     获取 Agent 图和运行配置。
 
+    LLM 提供商和模型由 .env 中的配置决定（LLM_PROVIDER, LLM_MODEL）。
+
     Args:
-        model_name: 模型名称
         thread_id: 对话线程 ID
         mode: "single" (Week 4) 或 "multi" (Week 5, 默认)
 
@@ -274,10 +262,7 @@ def get_agent(
         state = {"messages": [HumanMessage(content="设计 pH 5.5 裂解的连接子")]}
         result = graph.invoke(state, config)
     """
-    if mode == "single":
-        graph = create_single_agent_graph(model_name)
-    else:
-        graph = create_multi_agent_graph(model_name)
+    graph = create_single_agent_graph() if mode == "single" else create_multi_agent_graph()
 
     config = {"configurable": {"thread_id": thread_id}}
     return graph, config
