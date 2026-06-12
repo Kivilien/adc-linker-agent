@@ -54,6 +54,7 @@ from .tool_property import check_lipinski as _check_lipinski
 from .tool_ph import predict_ph_stability as _predict_ph_stability
 from .tool_ph import predict_ph_stability_all_phases as _predict_ph_stability_all_phases
 from .tool_linker import search_linker_scaffolds as _search_linker_scaffolds
+from .tool_design import design_linker as _design_linker
 
 # 注册：每个工具函数被包装为 MCP Tool
 mcp.tool()(_validate_smiles)
@@ -62,6 +63,7 @@ mcp.tool()(_check_lipinski)
 mcp.tool()(_predict_ph_stability)
 mcp.tool()(_predict_ph_stability_all_phases)
 mcp.tool()(_search_linker_scaffolds)
+mcp.tool()(_design_linker)
 
 
 # ─── 入口点 ───

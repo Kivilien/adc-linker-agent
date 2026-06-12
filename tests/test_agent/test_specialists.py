@@ -40,9 +40,9 @@ class TestToolSetAssignment:
         tool_names = {t.name for t in PH_TOOLS}
         assert tool_names == {"predict_ph_stability", "predict_ph_stability_all_phases"}
 
-    def test_linker_agent_has_all_6_tools(self):
-        """LinkerDesignAgent 拥有全部 6 个工具"""
-        assert len(LINKER_TOOLS) == 6
+    def test_linker_agent_has_all_7_tools(self):
+        """LinkerDesignAgent 拥有全部 7 个工具"""
+        assert len(LINKER_TOOLS) == 7
         assert LINKER_TOOLS == ALL_TOOLS
 
     def test_property_agent_cannot_access_ph_tools(self):
@@ -61,9 +61,9 @@ class TestToolSetAssignment:
 class TestToolMap:
     """测试工具名→函数映射"""
 
-    def test_all_6_tools_in_map(self):
-        """_TOOL_MAP 应该包含全部 6 个工具"""
-        assert len(_TOOL_MAP) == 6
+    def test_all_7_tools_in_map(self):
+        """_TOOL_MAP 应该包含全部 7 个工具"""
+        assert len(_TOOL_MAP) == 7
         expected = {
             "validate_smiles",
             "calculate_properties",
@@ -71,6 +71,7 @@ class TestToolMap:
             "predict_ph_stability",
             "predict_ph_stability_all_phases",
             "search_linker_scaffolds",
+            "design_linker",
         }
         assert set(_TOOL_MAP.keys()) == expected
 

@@ -29,6 +29,7 @@ from adc_linker_agent.agent.tools import (
     ALL_TOOLS,
     calculate_properties,
     check_lipinski,
+    design_linker,
     predict_ph_stability,
     predict_ph_stability_all_phases,
     search_linker_scaffolds,
@@ -98,13 +99,14 @@ Your ONLY job: help design and evaluate ADC linker candidates.
 You have access to ALL tools:
 - validate_smiles, calculate_properties, check_lipinski
 - predict_ph_stability, predict_ph_stability_all_phases
-- search_linker_scaffolds
+- search_linker_scaffolds, design_linker (optimization loop)
 
 Workflow for linker design:
 1. Understand the user's requirements (pH trigger, payload type, stability needs)
-2. Search known linker scaffolds for reference
-3. Compute properties for candidate structures
-4. Evaluate pH stability across all physiological phases
+2. Call design_linker to run the full optimization loop
+3. Review ranked candidates and their multi-criteria scores
+4. For top candidates, verify properties with calculate_properties
+5. Verify pH stability with predict_ph_stability_all_phases
 5. Provide design recommendations with property comparison
 
 Workflow for linker evaluation:
@@ -125,6 +127,7 @@ _TOOL_MAP = {
     "predict_ph_stability": predict_ph_stability,
     "predict_ph_stability_all_phases": predict_ph_stability_all_phases,
     "search_linker_scaffolds": search_linker_scaffolds,
+    "design_linker": design_linker,
 }
 
 

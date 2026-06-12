@@ -29,9 +29,9 @@ class TestToolWrappers:
         for tool in ALL_TOOLS:
             assert isinstance(tool, BaseTool), f"{tool.name} is not BaseTool"
 
-    def test_six_tools_in_list(self):
-        """ALL_TOOLS 应该包含 6 个工具"""
-        assert len(ALL_TOOLS) == 6
+    def test_seven_tools_in_list(self):
+        """ALL_TOOLS 应该包含 7 个工具"""
+        assert len(ALL_TOOLS) == 7
 
     def test_unique_tool_names(self):
         """工具名称应该不重复"""

@@ -100,7 +100,7 @@ class HealthResponse(BaseModel):
     status: str = Field(default="ok", description="服务状态")
     version: str = Field(default="0.1.0", description="API 版本")
     agent_mode: str = Field(default="multi", description="当前 Agent 模式")
-    tools_available: int = Field(default=6, description="可用工具数")
+    tools_available: int = Field(default=7, description="可用工具数")
 
 
 class ToolInfo(BaseModel):

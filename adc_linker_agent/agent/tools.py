@@ -192,6 +192,48 @@ def search_linker_scaffolds(
     return _search(mechanism, min_molecular_weight, max_molecular_weight)
 
 
+@tool
+def design_linker(
+    target_ph: float = 5.0,
+    preferred_mechanism: str | None = None,
+    min_qed: float = 0.2,
+    max_sas: float = 7.0,
+    require_blood_stable: bool = True,
+    max_results: int = 3,
+) -> dict:
+    """
+    Design ADC linker candidates based on target requirements.
+
+    Runs the full design optimization loop: filter scaffolds → evaluate
+    properties → assess pH stability → multi-criteria scoring → rank →
+    return top candidates. THIS is the main design tool.
+
+    Use this when the user wants to DESIGN a new linker (not just search).
+    For simple scaffold lookup, use search_linker_scaffolds instead.
+
+    Args:
+        target_ph: Desired cleavage pH (5.0=lysosome, 5.5=late endosome)
+        preferred_mechanism: "pH_sensitive", "enzymatic", "redox", or None for all
+        min_qed: Minimum drug-likeness (0-1, default 0.2)
+        max_sas: Maximum synthetic difficulty (1-10, default 7.0)
+        require_blood_stable: Require stability at pH 7.4 (default True)
+        max_results: Max candidates to return (default 3)
+
+    Returns:
+        dict with ranked candidates, scores, strengths/weaknesses, and design summary
+    """
+    from adc_linker_agent.mcp_tools.tool_design import design_linker as _design
+
+    return _design(
+        target_ph=target_ph,
+        preferred_mechanism=preferred_mechanism,
+        min_qed=min_qed,
+        max_sas=max_sas,
+        require_blood_stable=require_blood_stable,
+        max_results=max_results,
+    )
+
+
 # ─── 工具列表 ───
 # 这是 Agent 的"工具箱"——ChatAnthropic.bind_tools(ALL_TOOLS)
 
@@ -202,4 +244,5 @@ ALL_TOOLS = [
     predict_ph_stability,
     predict_ph_stability_all_phases,
     search_linker_scaffolds,
+    design_linker,
 ]

@@ -102,7 +102,7 @@ class TestHealthResponse:
         assert resp.status == "ok"
         assert resp.version == "0.1.0"
         assert resp.agent_mode == "multi"
-        assert resp.tools_available == 6
+        assert resp.tools_available == 7
 
     def test_custom_status(self):
         resp = HealthResponse(status="no_api_key")

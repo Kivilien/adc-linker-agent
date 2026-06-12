@@ -13,11 +13,11 @@ class TestMCPServer:
         from adc_linker_agent.mcp_tools.server import mcp
         assert mcp is not None
 
-    def test_six_tools_registered(self):
-        """应该有 6 个工具注册在 MCP 服务器上"""
+    def test_seven_tools_registered(self):
+        """应该有 7 个工具注册在 MCP 服务器上"""
         from adc_linker_agent.mcp_tools.server import mcp
         tools = mcp._tool_manager._tools
-        assert len(tools) == 6
+        assert len(tools) == 7
 
     def test_all_expected_tools_present(self):
         """所有预期的工具名都应该存在"""
@@ -30,6 +30,7 @@ class TestMCPServer:
             "predict_ph_stability",
             "predict_ph_stability_all_phases",
             "search_linker_scaffolds",
+            "design_linker",
         }
         assert tool_names == expected
 
