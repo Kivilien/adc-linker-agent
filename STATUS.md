@@ -1,0 +1,6 @@
+
+### 会话交接 — 2026-06-12 11:33
+- 会话: e364c630-fdf
+- 工作目录: /Users/lushun/projects/adc-linker-agent
+- 上下文状态: 正常
+
