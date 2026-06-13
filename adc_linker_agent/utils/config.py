@@ -58,11 +58,17 @@ class Config:
             "deepseek-reasoner" if self.deepseek_api_key else "claude-fable-5",
         )
 
+        # ─── API 认证 ───
+        self.api_key: str = os.getenv("ADC_API_KEY", "")
+        # 审计日志路径
+        self.audit_log_path: Path = PROJECT_ROOT / "logs" / "audit.jsonl"
+
         # ─── 服务配置 ───
         self.mcp_host: str = os.getenv("MCP_HOST", "0.0.0.0")
         self.mcp_port: int = int(os.getenv("MCP_PORT", "8000"))
         self.project_root: Path = PROJECT_ROOT
         self.data_dir: Path = PROJECT_ROOT / "data"
+        self.ph_labile_groups_path: Path = self.data_dir / "ph_labile_groups.yaml"
 
     @property
     def has_api_key(self) -> bool:

@@ -12,12 +12,10 @@
 """
 
 import pytest
-
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from adc_linker_agent.agent.graph import create_single_agent_graph
 from adc_linker_agent.agent.state import AgentState
-
 
 # ─── 测试用 SMILES ───
 BENZENE_SMILES = "c1ccccc1"
@@ -136,7 +134,11 @@ class TestToolsCondition:
                     content="",
                     tool_calls=[
                         {"name": "validate_smiles", "args": {"smiles": "c1ccccc1"}, "id": "c1"},
-                        {"name": "calculate_properties", "args": {"smiles": "c1ccccc1"}, "id": "c2"},
+                        {
+                            "name": "calculate_properties",
+                            "args": {"smiles": "c1ccccc1"},
+                            "id": "c2",
+                        },
                     ],
                 ),
             ]

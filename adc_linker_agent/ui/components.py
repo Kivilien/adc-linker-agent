@@ -80,98 +80,35 @@ def render_ph_stability(result: dict):
             st.write(recommendation)
 
 
-def render_ph_all_phases(results: dict):
+def render_tool_call(
+    name: str,
+    args: dict,
+    result: str | None = None,
+    compact: bool = False,
+):
     """
-    渲染全生理阶段 pH 稳定性结果。
+    渲染工具调用详情。
 
-    用列布局展示 ADC 递送路径中每阶段的稳定性。
+    compact=True: 简洁行模式（用于父折叠面板内批量展示）
+    compact=False: 独立折叠面板（用于单个工具展示）
     """
-    phase_order = [
-        ("blood", "🩸 血液 pH 7.4"),
-        ("tumor_microenvironment", "🦠 肿瘤微环境 pH 6.5"),
-        ("early_endosome", "📦 早期内吞体 pH 6.0"),
-        ("late_endosome", "📦 晚期内吞体 pH 5.5"),
-        ("lysosome", "🧪 溶酶体 pH 5.0"),
-        ("stomach", "🍽️ 胃 pH 2.0"),
-    ]
-
-    cols = st.columns(3)
-    for i, (phase_key, phase_label) in enumerate(phase_order):
-        if phase_key not in results:
-            continue
-        r = results[phase_key]
-        is_stable = r.get("is_stable", True)
-        with cols[i % 3]:
-            if is_stable:
-                st.success(f"**{phase_label}**\n\n✅ 稳定")
-            else:
-                st.error(f"**{phase_label}**\n\n🔴 不稳定")
-
-    # 理想模式提示
-    blood_ok = results.get("blood", {}).get("is_stable", False)
-    lysosome_unstable = not results.get("lysosome", {}).get("is_stable", True)
-    if blood_ok and lysosome_unstable:
-        st.info("✅ 理想 ADC 连接子模式：血液稳定 + 溶酶体裂解")
-    elif not blood_ok:
-        st.error("⚠️ 警告：连接子在血液中不稳定，会提前释放毒素！")
-    elif not lysosome_unstable:
-        st.warning("⚠️ 注意：连接子在溶酶体中不裂解，可能无效！")
-
-
-def render_linker_card(linker: dict):
-    """
-    渲染单个连接子骨架卡片。
-    """
-    name = linker.get("name", "Unknown")
-    mechanism = linker.get("mechanism", "?")
-    description = linker.get("description", "")
-    drugs = linker.get("drugs_using", [])
-    props = linker.get("properties", {})
-
-    mechanism_emoji = {
-        "pH_sensitive": "🔴",
-        "enzymatic": "🟢",
-        "redox": "🟡",
-        "non_cleavable": "⚫",
-    }
-
-    with st.container(border=True):
-        emoji = mechanism_emoji.get(mechanism, "❓")
-        st.subheader(f"{emoji} {name}")
-
-        # 机制标签
-        st.caption(f"**机制**: {mechanism} | **触发**: {linker.get('trigger', 'N/A')}")
-
-        # 临床参考
-        if drugs:
-            st.caption(f"**临床参考**: {', '.join(drugs[:3])}")
-
-        with st.expander("详情"):
-            st.write(description)
-            st.caption(f"SMILES: `{linker.get('smiles', 'N/A')}`")
-
-        # 关键性质
-        if props:
-            mw = props.get("molecular_weight", "?")
-            logp = props.get("logp", "?")
-            qed = props.get("qed", "?")
-            st.caption(f"MW: {mw} Da | LogP: {logp} | QED: {qed}")
-
-
-def render_tool_call(name: str, args: dict, result: str | None = None):
-    """
-    在可展开面板中渲染工具调用详情。
-    """
-    with st.expander(f"🔧 {name}", expanded=False):
-        st.caption("**参数**")
-        st.code(json.dumps(args, ensure_ascii=False, indent=2), language="json")
-        if result:
-            st.caption("**结果**")
-            try:
-                result_json = json.loads(result)
-                st.json(result_json)
-            except (json.JSONDecodeError, TypeError):
-                st.text(result)
+    if compact:
+        arg_preview = ", ".join(
+            f"{k}={json.dumps(v, ensure_ascii=False)}"
+            for k, v in list(args.items())[:3]
+        )
+        st.caption(f"🔹 **{name}**({arg_preview[:80]})")
+    else:
+        with st.expander(f"🔧 {name}", expanded=False):
+            st.caption("**参数**")
+            st.code(json.dumps(args, ensure_ascii=False, indent=2), language="json")
+            if result:
+                st.caption("**结果**")
+                try:
+                    result_json = json.loads(result)
+                    st.json(result_json)
+                except (json.JSONDecodeError, TypeError):
+                    st.text(result)
 
 
 def render_message_content(content: str):
@@ -198,6 +135,101 @@ def render_message_content(content: str):
 
     # 默认：Markdown 渲染
     st.markdown(content)
+
+
+def render_molecule_structure(smiles: str, caption: str = "", size: tuple = (400, 250)):
+    """
+    渲染分子结构图。
+
+    用 RDKit 生成 PNG 图片并在 Streamlit 中展示。
+    降级方案：SVG 渲染。
+    """
+    from adc_linker_agent.domain.molecule import render_molecule_image, render_molecule_svg
+
+    if not smiles:
+        return
+
+    # 方案 A: PNG
+    png_bytes = render_molecule_image(smiles, size=size)
+    if png_bytes:
+        st.image(png_bytes, caption=caption or smiles, use_container_width=True)
+        return
+
+    # 方案 B: SVG 降级
+    svg_str = render_molecule_svg(smiles, size=size)
+    if svg_str:
+        st.image(svg_str, caption=caption or smiles, use_container_width=True)
+        return
+
+    st.code(smiles, language=None)
+
+
+def render_toxicity_alerts(alerts: list[dict], has_alerts: bool):
+    """
+    渲染毒性警报组件。
+
+    有警报时显示红色警告框，列出每条警报的详情。
+    无警报时显示绿色通过标记。
+    """
+    if has_alerts and alerts:
+        with st.container(border=True):
+            st.error(f"🚨 检测到 {len(alerts)} 个毒性/假阳性警报")
+
+            pains_alerts = [a for a in alerts if a.get("filter") == "pains"]
+            brenk_alerts = [a for a in alerts if a.get("filter") == "brenk"]
+
+            if pains_alerts:
+                st.caption(
+                    f"⚠️ **PAINS 假阳性警报** ({len(pains_alerts)} 个): "
+                    "这类化合物在筛选中频繁出现假阳性——不可作为药物开发。"
+                )
+                for a in pains_alerts[:5]:
+                    st.caption(f"  • {a.get('description', 'Unknown')}")
+
+            if brenk_alerts:
+                st.caption(
+                    f"⚠️ **Brenk 毒性警报** ({len(brenk_alerts)} 个): "
+                    "含潜在毒性、不稳定或代谢反应性子结构。"
+                )
+                for a in brenk_alerts[:5]:
+                    st.caption(f"  • {a.get('description', 'Unknown')}")
+    elif not alerts:
+        st.success("✅ 未检出已知毒性/假阳性警报结构")
+
+
+def render_risk_flags(risk_flags: list[str]):
+    """渲染风险标志列表"""
+    if risk_flags:
+        with st.container(border=True):
+            st.warning("⚠️ 风险标志")
+            for flag in risk_flags:
+                st.caption(f"  • {flag}")
+
+
+def render_streaming_status(
+    placeholder,
+    agent_name: str = "",
+    agent_label: str = "",
+    tool_name: str = "",
+):
+    """
+    流式状态指示器。
+
+    根据当前执行的 Agent 或工具更新 Streamlit placeholder。
+    用于 astream_events 实时状态展示。
+
+    Args:
+        placeholder: st.empty() 占位符
+        agent_name: 当前 Agent 名称（如 "linker_agent"）
+        agent_label: Agent 显示标签（如 "🔗 LinkerAgent 设计连接子"）
+        tool_name: 当前工具名称（如 "design_linker"）
+    """
+    if tool_name:
+        placeholder.info(f"🔧 调用工具: **{tool_name}**")
+    elif agent_label:
+        placeholder.info(agent_label)
+    elif agent_name:
+        placeholder.info(f"🔄 {agent_name} 工作中...")
 
 
 def render_sidebar():
@@ -236,6 +268,270 @@ def render_sidebar():
         """)
 
         st.divider()
-        st.caption("ADC Linker Agent v0.1.0 | 187 tests passing")
+        st.caption("ADC Linker Agent v1.1.0 | 323 tests passing")
 
     return mode
+
+
+def render_design_report(report):
+    """
+    渲染结构化设计报告。
+
+    将 DesignReport 数据转换为科研报告格式，包括:
+      - 报告标题 + 需求摘要
+      - 候选对比表
+      - Top-3 详细卡片（含结构图、性质仪表盘、pH 路径）
+      - 对比分析
+      - 毒性汇总 + 警告
+
+    Args:
+        report: domain.report.DesignReport 实例
+    """
+    from adc_linker_agent.utils.validators import MEDICAL_DISCLAIMER
+
+    # ─── 报告标题 ───
+    st.markdown("---")
+    st.header("📊 ADC 连接子设计报告")
+    st.caption(f"生成时间: {report.generated_at} | 需求: {report.request_summary}")
+
+    # ─── 1. 设计概览 ───
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("评估候选", report.total_evaluated)
+    col2.metric("过滤排除", report.total_filtered)
+    col3.metric("最终候选", report.candidate_count)
+    tox_label = "⚠️ 有警报" if report.has_any_toxicity else "✅ 通过"
+    col4.metric("毒性筛查", tox_label)
+
+    if not report.candidates:
+        st.warning("未找到符合筛选条件的候选。建议放宽 QED 或 SAS 要求。")
+        return
+
+    st.divider()
+
+    # ─── 2. 候选对比表 ───
+    st.subheader("📋 候选对比表")
+
+    table_data = []
+    for c in report.candidates:
+        blood = "✅" if c.blood_stable else "🔴"
+        lyso = "✅" if c.lysosome_labile else "—"
+        tox = f"🚨 {c.toxicity_count}" if c.has_toxicity_alerts else "✅"
+        table_data.append({
+            "排名": c.rank,
+            "名称": c.name,
+            "机制": c.mechanism_label,
+            "综合分": f"{c.overall_score:.3f}",
+            "血液": blood,
+            "溶酶体": lyso,
+            "QED": f"{c.qed:.3f}",
+            "LogP": c.logp,
+            "SAS": c.sas,
+            "毒性": tox,
+        })
+
+    st.dataframe(table_data, use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # ─── 3. Top-3 详细卡片 ───
+    st.subheader("🔍 Top-3 候选详情")
+
+    for card in report.detailed_cards:
+        _render_candidate_card(card)
+
+    st.divider()
+
+    # ─── 4. 对比分析 ───
+    if report.comparison_dimensions:
+        st.subheader("⚖️ 候选对比分析")
+        for dim in report.comparison_dimensions:
+            with st.expander(dim["dimension"]):
+                st.write(dim["detail"])
+
+    st.divider()
+
+    # ─── 5. 毒性汇总 ───
+    st.subheader("🛡️ 安全性评估")
+    if report.has_any_toxicity:
+        st.error(report.toxicity_summary)
+    else:
+        st.success(report.toxicity_summary)
+
+    # ─── 6. 全局警告 ───
+    if report.warnings:
+        for w in report.warnings:
+            st.warning(w)
+
+    # ─── 7. 失败骨架 ───
+    if report.failed_scaffolds:
+        with st.expander(f"⚠️ 评估失败的骨架 ({len(report.failed_scaffolds)} 个)"):
+            for f in report.failed_scaffolds:
+                st.caption(f"• {f.get('name', 'Unknown')}: {f.get('error', 'Unknown error')}")
+
+    # ─── 8. 医学免责声明 ───
+    st.divider()
+    st.caption(MEDICAL_DISCLAIMER)
+
+
+def _render_candidate_card(card: dict):
+    """渲染单个候选的详细卡片"""
+    name = card["name"]
+    rank = card["rank"]
+    mech_label = card.get("mechanism_label", card.get("mechanism", ""))
+    smiles = card["smiles"]
+    recommendation = card.get("recommendation", "")
+
+    # 卡片容器
+    with st.container(border=True):
+        # 标题行
+        rank_emoji = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"#{rank}")
+        st.subheader(f"{rank_emoji} {name}")
+        st.caption(f"**机制**: {mech_label} | **SMILES**: `{smiles}`")
+
+        # 结构式图片
+        render_molecule_structure(smiles, caption=name)
+
+        # 分数栏
+        scores = card.get("scores", {})
+        score_cols = st.columns(5)
+        score_cols[0].metric("血液稳定性", f"{scores.get('blood_stability', 0):.2f}")
+        score_cols[1].metric("溶酶体裂解", f"{scores.get('lysosome_lability', 0):.2f}")
+        score_cols[2].metric("药物相似性", f"{scores.get('drug_likeness', 0):.2f}")
+        score_cols[3].metric("合成可行性", f"{scores.get('synthetic', 0):.2f}")
+        score_cols[4].metric("⭐ 综合分", f"{scores.get('overall', 0):.3f}")
+
+        # 性质仪表盘
+        props = card.get("properties", {})
+        prop_cols = st.columns(4)
+        for i, (prop_name, prop_data) in enumerate(props.items()):
+            if not isinstance(prop_data, dict):
+                continue
+            value = prop_data.get("value", "—")
+            status = prop_data.get("status", "ok")
+            ideal = prop_data.get("ideal", "")
+            delta = None
+            if status == "ideal":
+                delta = "✅"
+            elif status == "warning":
+                delta = "⚠️"
+            with prop_cols[i % 4]:
+                st.metric(
+                    label=f"{prop_name} ({ideal})" if ideal else prop_name,
+                    value=value,
+                    delta=delta,
+                )
+
+        # pH 路径
+        ph = card.get("ph_stability", {})
+        ph_col1, ph_col2 = st.columns(2)
+        with ph_col1:
+            if ph.get("blood_stable"):
+                st.success("🩸 血液 pH 7.4: ✅ 稳定")
+            else:
+                st.error("🩸 血液 pH 7.4: 🔴 不稳定")
+        with ph_col2:
+            if ph.get("lysosome_labile"):
+                st.success("🧪 溶酶体 pH 5.0: ✅ 可裂解")
+            else:
+                st.warning("🧪 溶酶体 pH 5.0: ⚠️ 裂解不充分")
+
+        # 优缺点
+        strengths = card.get("strengths", [])
+        weaknesses = card.get("weaknesses", [])
+        if strengths or weaknesses:
+            sw_col1, sw_col2 = st.columns(2)
+            with sw_col1:
+                if strengths:
+                    st.caption("**✅ 优势**")
+                    for s in strengths:
+                        st.caption(f"  • {s}")
+            with sw_col2:
+                if weaknesses:
+                    st.caption("**⚠️ 不足**")
+                    for w in weaknesses:
+                        st.caption(f"  • {w}")
+
+        # 毒性警报
+        if card.get("has_toxicity_alerts"):
+            tox_alerts = card.get("toxicity_alerts", [])
+            render_toxicity_alerts(tox_alerts, True)
+
+        # 风险标志
+        risk_flags = card.get("risk_flags", [])
+        render_risk_flags(risk_flags)
+
+        # 推荐理由
+        if recommendation:
+            if "🚨" in recommendation:
+                st.error(recommendation)
+            elif "✅" in recommendation:
+                st.success(recommendation)
+            elif "⚠️" in recommendation:
+                st.warning(recommendation)
+            else:
+                st.info(recommendation)
+
+        # 临床参考
+        drugs = card.get("drugs_using", [])
+        if drugs:
+            st.caption(f"**📚 临床参考**: {', '.join(drugs[:5])}")
+
+
+def render_literature_cards(lit_data: dict):
+    """
+    渲染文献搜索结果卡片。
+
+    从 shared_context.literature_data 直接渲染，不依赖 LLM 文本解析。
+    这是架构 v2 的关键修复——文献结果始终可见。
+
+    Args:
+        lit_data: {"papers": [...], "queries": [...], "total_found": int}
+    """
+    papers = lit_data.get("papers", [])
+    queries = lit_data.get("queries", [])
+    total = lit_data.get("total_found", len(papers))
+
+    if not papers:
+        if queries:
+            st.info(f"未找到相关文献（搜索: {'; '.join(queries)}）")
+        return
+
+    # 标题行
+    query_text = "; ".join(queries) if queries else "文献搜索"
+    st.markdown(f"**搜索**: {query_text}")
+    st.caption(f"找到 {total} 篇相关论文")
+
+    st.divider()
+
+    # 每篇论文一行（简洁风格，像 Claude 的输出）
+    for i, p in enumerate(papers, 1):
+        title = p.get("title", "未知标题")
+        authors = p.get("authors", "")
+        journal = p.get("journal", "")
+        year = p.get("year", "")
+        doi = p.get("doi", "")
+        abstract = p.get("abstract", "")
+
+        # 构建引用行
+        parts = [f"{i}."]
+        if authors:
+            parts.append(f"{authors}.")
+        parts.append(f"*{title}*")
+        if journal and year:
+            parts.append(f"{journal}. {year}.")
+        elif year:
+            parts.append(f"({year})")
+
+        st.markdown(" ".join(parts))
+
+        # DOI 链接
+        if doi:
+            st.caption(f"https://doi.org/{doi}")
+
+        # 摘要（截断）
+        if abstract:
+            with st.expander("摘要"):
+                st.caption(abstract[:500])
+
+        if i < len(papers):
+            st.divider()

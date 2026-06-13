@@ -1,7 +1,7 @@
 """LangGraph agent orchestration — single and multi-agent systems.
 
-Week 4: Single-agent ReAct loop with LangChain tools.
-Week 5: Multi-agent supervisor + 3 specialists (Property/PH/Linker).
+架构 v2: 三阶段 Supervisor（Planner → Dispatcher → Synthesizer）
+  + 双通道状态（messages + shared_context）
 
 Quick start:
     from adc_linker_agent.agent.graph import get_agent
@@ -19,13 +19,18 @@ from adc_linker_agent.agent.graph import (
     create_single_agent_graph,
     get_agent,
 )
-from adc_linker_agent.agent.state import AgentState, MultiAgentState
+from adc_linker_agent.agent.state import AgentState, RoutableAgent, SpecialistName
 from adc_linker_agent.agent.tools import ALL_TOOLS
+
+# 向后兼容别名
+MultiAgentState = AgentState
 
 __all__ = [
     # State
     "AgentState",
-    "MultiAgentState",
+    "MultiAgentState",  # deprecated, use AgentState
+    "SpecialistName",
+    "RoutableAgent",
     # Tools
     "ALL_TOOLS",
     # Graphs

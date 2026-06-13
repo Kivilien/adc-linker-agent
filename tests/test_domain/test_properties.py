@@ -5,8 +5,8 @@
 import pytest
 
 from adc_linker_agent.domain.properties import (
-    MolPropertyCalculator,
     CachedMolPropertyCalculator,
+    MolPropertyCalculator,
 )
 
 # ─── 测试用例：已知性质的参考分子 ───

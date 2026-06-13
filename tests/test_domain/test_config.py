@@ -2,9 +2,8 @@
 测试 utils/config.py — 配置管理
 """
 
-from pathlib import Path
 
-from adc_linker_agent.utils.config import Config, get_config, _find_project_root
+from adc_linker_agent.utils.config import Config, _find_project_root, get_config
 
 
 class TestConfig:

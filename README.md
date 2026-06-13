@@ -2,11 +2,13 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Ruff](https://img.shields.io/badge/lint-ruff-green.svg)](https://github.com/astral-sh/ruff)
-[![Tests](https://img.shields.io/badge/tests-255%20passed-brightgreen.svg)](.)
-[![Version](https://img.shields.io/badge/version-1.0.0-orange.svg)](.)
+[![Tests](https://img.shields.io/badge/tests-323%20passed-brightgreen.svg)](.)
+[![Version](https://img.shields.io/badge/version-1.1.0-orange.svg)](.)
 
 Enterprise-grade Multi-Agent AI system for Antibody-Drug Conjugate (ADC) linker design.
 Built with LangGraph, MCP, and RDKit. Case study: Suzhou Yili Bio-Pharmaceutical.
+
+**Phase 2 (2026-06)**: Streaming execution, structured research reports, toxicity screening, configurable scoring.
 
 ---
 
@@ -36,11 +38,11 @@ and the Multi-Agent system returns ranked candidates with full property analysis
 │                   Multi-Agent Supervisor                      │
 │  ┌─────────────┐  ┌──────────┐  ┌──────────────────────┐    │
 │  │ PropertyAgent│  │ PHAgent  │  │ LinkerDesignAgent    │    │
-│  │ (3 tools)    │  │ (2 tools)│  │ (7 tools, all)       │    │
+│  │ (4 tools)    │  │ (2 tools)│  │ (9 tools, all)       │    │
 │  └──────┬───────┘  └────┬─────┘  └──────────┬───────────┘    │
 │         └────────────────┼──────────────────┘                │
 ├──────────────────────────┼───────────────────────────────────┤
-│                     MCP Server (7 tools)                      │
+│                     MCP Server (8 tools)                      │
 ├──────────────────────────┼───────────────────────────────────┤
 │                Domain Layer (RDKit)                           │
 │  MolPropertyCalculator · PhSimulator · LinkerDesigner        │
@@ -51,13 +53,13 @@ and the Multi-Agent system returns ranked candidates with full property analysis
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| Chemoinformatics | RDKit 2022.9 | Molecular property calculation |
+| Chemoinformatics | RDKit 2022.9 | Molecular property calculation, PAINS/Brenk toxicity screening |
 | Tool Protocol | MCP (Model Context Protocol) | LLM ↔ Tool standard interface |
-| Agent Orchestration | LangGraph 1.2 | Stateful multi-agent graph |
-| LLM | Claude (Anthropic) | Agent reasoning engine |
-| API | FastAPI | REST endpoints |
-| UI | Streamlit | Chat interface |
-| Testing | pytest 255 tests | Unit + integration |
+| Agent Orchestration | LangGraph 0.3+ | Stateful multi-agent graph, astream_events streaming |
+| LLM | DeepSeek / Anthropic | Agent reasoning engine |
+| API | FastAPI | REST endpoints with rate limiting |
+| UI | Streamlit | Chat interface with streaming status + structured reports |
+| Testing | pytest 305 tests | Unit + integration + property pipelines |
 
 ---
 
@@ -104,7 +106,7 @@ python -m adc_linker_agent.mcp_tools.server
 
 **Tests**:
 ```bash
-pytest tests/ -v                    # 255 tests
+pytest tests/ -v                    # 305 tests
 pytest tests/ --cov=adc_linker_agent  # with coverage
 ```
 
@@ -117,10 +119,12 @@ pytest tests/ --cov=adc_linker_agent  # with coverage
 | 1 | `validate_smiles` | Validate SMILES strings, return canonical form + formula |
 | 2 | `calculate_properties` | 8 descriptors (LogP, QED, SAS, TPSA, MW, HBD, HBA, rot. bonds) |
 | 3 | `check_lipinski` | Lipinski Rule of Five for oral drug-likeness |
-| 4 | `predict_ph_stability` | pH-dependent stability at a specific pH |
-| 5 | `predict_ph_stability_all_phases` | Full ADC delivery path (blood→tumor→endosome→lysosome) |
-| 6 | `search_linker_scaffolds` | Query 17-linker scaffold database |
-| 7 | `design_linker` | Optimization loop: filter→evaluate→score→rank |
+| 4 | `check_toxicity` | PAINS (480) + Brenk (105) toxicity/pan-assay interference alerts |
+| 5 | `predict_ph_stability` | pH-dependent stability at a specific pH |
+| 6 | `predict_ph_stability_all_phases` | Full ADC delivery path (blood→tumor→endosome→lysosome) |
+| 7 | `search_linker_scaffolds` | Query 17-linker scaffold database |
+| 8 | `design_linker` | Optimization loop: filter→evaluate→score→rank, with structured report |
+| 9 | `search_literature` | PubMed/Europe PMC literature verification with DOI links |
 
 ---
 
@@ -130,23 +134,31 @@ pytest tests/ --cov=adc_linker_agent  # with coverage
 adc-linker-agent/
 ├── adc_linker_agent/
 │   ├── domain/              # Core domain logic
-│   │   ├── molecule.py      # Pydantic models
-│   │   ├── properties.py    # 8 molecular descriptors
-│   │   ├── ph_simulator.py  # pH stability rule engine
-│   │   └── linker_designer.py  # Design optimization loop
-│   ├── mcp_tools/           # MCP protocol tools (7)
+│   │   ├── molecule.py      # Pydantic models + structure rendering
+│   │   ├── properties.py    # 8 descriptors + PAINS/Brenk toxicity
+│   │   ├── ph_simulator.py  # pH stability rule engine (YAML-configurable)
+│   │   ├── linker_designer.py  # Design optimization loop (configurable weights)
+│   │   ├── report.py        # Structured report engine (no LLM dependency)
+│   │   └── literature.py    # PubMed/Europe PMC search
+│   ├── mcp_tools/           # MCP protocol tools (9)
 │   │   ├── server.py        # FastMCP entry point
 │   │   └── tool_*.py        # Individual tool definitions
 │   ├── agent/               # LangGraph agent system
 │   │   ├── state.py         # AgentState + MultiAgentState
-│   │   ├── tools.py         # LangChain @tool wrappers
-│   │   ├── specialists.py   # 3 specialist agents
-│   │   └── graph.py         # Single & Multi-agent graphs
-│   ├── api/                 # FastAPI REST API
-│   └── ui/                  # Streamlit chat UI
+│   │   ├── tools.py         # LangChain @tool wrappers (9 tools)
+│   │   ├── specialists.py   # 4 specialist agents
+│   │   ├── graph.py         # Single & Multi-agent graphs
+│   │   └── model_factory.py # LLM provider abstraction
+│   ├── api/                 # FastAPI REST API (rate-limited)
+│   ├── ui/                  # Streamlit chat UI
+│   │   ├── app.py           # Main app (streaming + reports)
+│   │   └── components.py    # Reusable UI components
+│   └── utils/               # Config, validators, disclaimer
 ├── data/
-│   └── linker_scaffolds.csv # 17 linker scaffolds
-├── tests/                   # 255 tests across 6 layers
+│   ├── linker_scaffolds.csv     # 17 linker scaffolds
+│   └── ph_labile_groups.yaml    # 7 pH-sensitive functional groups
+├── tests/                   # 305 tests across 7 layers
+│   └── test_integration/    # End-to-end pipeline tests (3 scenarios)
 ├── notebooks/               # Jupyter teaching notebooks
 └── pyproject.toml
 ```
@@ -165,11 +177,35 @@ adc-linker-agent/
 | 6 | Streamlit UI + FastAPI | 219 |
 | 7 | pH-aware linker design engine | 255 |
 | 8 | Polish, ruff clean, v1.0.0 | 255 |
+| 9 | **Phase 2**: Toxicity, reports, streaming, config externalization | 305 |
 
 ---
 
 ## 📊 Demo Queries
 
+### Scenario 1: Property + Toxicity
+```
+评估 CC(=O)NN=C(C)c1ccccc1 作为 ADC 连接子
+```
+**Expected**: SMILES validation → 8 molecular properties → Lipinski analysis → PAINS/Brenk toxicity alerts → structure image
+
+### Scenario 2: Linker Design → Structured Report
+```
+设计 pH 5.0 裂解的连接子，血液稳定，LogP 1-3
+```
+**Expected**: Multi-agent collaboration → `design_linker` optimization → structured report with:
+- 📋 Candidate comparison table (ranked by multi-criteria score)
+- 🔍 Top-3 detailed cards (property dashboard + pH pathway + strengths/weaknesses)
+- ⚖️ Cross-candidate comparison analysis
+- 🛡️ Toxicity/safety summary
+
+### Scenario 3: Literature Verification
+```
+搜索 Val-Cit-PABC 连接子的文献证据
+```
+**Expected**: PubMed/Europe PMC search → real papers with verified DOIs → evidence-grounded claims
+
+### More Queries
 ```
 # Property calculation
 计算阿司匹林的所有分子性质
@@ -180,11 +216,8 @@ adc-linker-agent/
 # Scaffold search
 搜索所有 pH 敏感的 ADC 连接子骨架
 
-# Linker design (optimization loop)
-设计一个在 pH 5.5 裂解释放喜树碱的连接子
-
-# Comprehensive task
-我需要一个 LogP 1-3、血液稳定、溶酶体裂解的连接子
+# Custom weights
+design_linker with weights: blood_stability=0.5, drug_likeness=0.3
 ```
 
 ---

@@ -37,10 +37,10 @@ class TestHealthEndpoint:
         data = resp.json()
         assert data["agent_mode"] == "multi"
 
-    def test_tools_available_is_seven(self, client):
+    def test_tools_available_is_eight(self, client):
         resp = client.get("/agent/health")
         data = resp.json()
-        assert data["tools_available"] == 7
+        assert data["tools_available"] == 9
 
 
 class TestToolsEndpoint:
@@ -50,11 +50,11 @@ class TestToolsEndpoint:
         resp = client.get("/agent/tools")
         assert resp.status_code == 200
 
-    def test_returns_seven_tools(self, client):
+    def test_returns_nine_tools(self, client):
         resp = client.get("/agent/tools")
         data = resp.json()
-        assert data["count"] == 7
-        assert len(data["tools"]) == 7
+        assert data["count"] == 9
+        assert len(data["tools"]) == 9
 
     def test_each_tool_has_name_and_description(self, client):
         resp = client.get("/agent/tools")
@@ -73,10 +73,12 @@ class TestToolsEndpoint:
             "validate_smiles",
             "calculate_properties",
             "check_lipinski",
+            "check_toxicity",
             "predict_ph_stability",
             "predict_ph_stability_all_phases",
             "search_linker_scaffolds",
             "design_linker",
+            "search_literature",
         }
         assert names == expected
 

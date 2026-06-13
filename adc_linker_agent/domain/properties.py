@@ -202,12 +202,98 @@ class MolPropertyCalculator:
         }
 
 
+# ─── 毒性检测 ───
+
+
+def check_toxicity_alerts(smiles: str) -> dict:
+    """
+    检查分子中是否含有 PAINS 或 Brenk 毒性/不稳定警报结构。
+
+    PAINS (Pan-Assay Interference Compounds):
+        假阳性化合物模式 —— 在生化筛选中频繁出现但非真正活性分子。
+        含 PAINS 子结构的分子在药物化学中通常被标记为"不可开发"。
+
+    Brenk 警报:
+        瑞士 Roche 公司识别的潜在毒性/不稳定性/代谢反应性子结构。
+        包含烷基化剂、Michael 受体、酰卤等高反应性基团。
+
+    Args:
+        smiles: 待检查的 SMILES 字符串
+
+    Returns:
+        dict with:
+        - has_alerts: bool — 是否有任何警报
+        - alerts: list[dict] — 每个警报的 {description, category, smarts_match}
+        - pains_count: int
+        - brenk_count: int
+    """
+    from rdkit.Chem.FilterCatalog import FilterCatalog, FilterCatalogParams
+
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return {"error": f"Invalid SMILES: {smiles}", "has_alerts": False, "alerts": []}
+
+    try:
+        # PAINS 过滤器 (A + B + C 三套，共 480 条规则)
+        pains_params = FilterCatalogParams()
+        pains_params.AddCatalog(FilterCatalogParams.FilterCatalogs.PAINS_A)
+        pains_params.AddCatalog(FilterCatalogParams.FilterCatalogs.PAINS_B)
+        pains_params.AddCatalog(FilterCatalogParams.FilterCatalogs.PAINS_C)
+        pains_catalog = FilterCatalog(pains_params)
+
+        # Brenk 过滤器 (105 条规则)
+        brenk_params = FilterCatalogParams()
+        brenk_params.AddCatalog(FilterCatalogParams.FilterCatalogs.BRENK)
+        brenk_catalog = FilterCatalog(brenk_params)
+    except Exception:
+        # 降级：某些 RDKit 版本可能不含完整过滤器
+        return {
+            "has_alerts": False,
+            "alerts": [],
+            "pains_count": 0,
+            "brenk_count": 0,
+            "warning": "FilterCatalog not fully available in this RDKit version",
+        }
+
+    alerts: list[dict] = []
+
+    # 扫描 PAINS
+    for entry in pains_catalog.GetMatches(mol):
+        alerts.append({
+            "description": entry.GetDescription(),
+            "category": "PAINS",
+            "filter": "pains",
+        })
+
+    # 扫描 Brenk
+    for entry in brenk_catalog.GetMatches(mol):
+        alerts.append({
+            "description": entry.GetDescription(),
+            "category": "Brenk",
+            "filter": "brenk",
+        })
+
+    pains_count = sum(1 for a in alerts if a["filter"] == "pains")
+    brenk_count = sum(1 for a in alerts if a["filter"] == "brenk")
+
+    return {
+        "has_alerts": len(alerts) > 0,
+        "alerts": alerts,
+        "pains_count": pains_count,
+        "brenk_count": brenk_count,
+        "summary": (
+            f"{len(alerts)} 毒性/假阳性警报"
+            f"（PAINS: {pains_count}, Brenk: {brenk_count}）"
+        ) if alerts else "未检出已知毒性/假阳性警报结构",
+    }
+
+
 # ─── 缓存版本（Week 8 性能优化时用） ───
 
 class CachedMolPropertyCalculator(MolPropertyCalculator):
     """
     带 LRU 缓存的性质计算器。
-    同一个 SMILES 只计算一次，适合高频调用场景。
+    同一个 SMILES 只计算一次，适合高频调用场景（如 linker_designer 评估 17 个骨架）。
     """
 
     @staticmethod
@@ -220,16 +306,46 @@ class CachedMolPropertyCalculator(MolPropertyCalculator):
     def calculate_qed_cached(smiles: str) -> float:
         return MolPropertyCalculator.calculate_qed(smiles)
 
+    @staticmethod
+    @lru_cache(maxsize=1024)
+    def calculate_sas_cached(smiles: str) -> float:
+        return MolPropertyCalculator.calculate_sas(smiles)
+
+    @staticmethod
+    @lru_cache(maxsize=1024)
+    def calculate_tpsa_cached(smiles: str) -> float:
+        return MolPropertyCalculator.calculate_tpsa(smiles)
+
+    @staticmethod
+    @lru_cache(maxsize=1024)
+    def calculate_mw_cached(smiles: str) -> float:
+        return MolPropertyCalculator.calculate_molecular_weight(smiles)
+
+    @staticmethod
+    @lru_cache(maxsize=1024)
+    def calculate_hbd_cached(smiles: str) -> int:
+        return MolPropertyCalculator.calculate_hbd(smiles)
+
+    @staticmethod
+    @lru_cache(maxsize=1024)
+    def calculate_hba_cached(smiles: str) -> int:
+        return MolPropertyCalculator.calculate_hba(smiles)
+
+    @staticmethod
+    @lru_cache(maxsize=1024)
+    def calculate_rb_cached(smiles: str) -> int:
+        return MolPropertyCalculator.calculate_rotatable_bonds(smiles)
+
     def calculate_all_cached(self, smiles: str) -> dict[str, float]:
-        """缓存版本的全量计算"""
+        """缓存版本的全量计算（8 个描述符全部 LRU 缓存）"""
         return {
             "smiles": smiles,
             "logp": round(self.calculate_logp_cached(smiles), 2),
             "qed": round(self.calculate_qed_cached(smiles), 3),
-            "sas": round(self.calculate_sas(smiles), 2),
-            "tpsa": round(self.calculate_tpsa(smiles), 1),
-            "molecular_weight": round(self.calculate_molecular_weight(smiles), 1),
-            "hbd": self.calculate_hbd(smiles),
-            "hba": self.calculate_hba(smiles),
-            "rotatable_bonds": self.calculate_rotatable_bonds(smiles),
+            "sas": round(self.calculate_sas_cached(smiles), 2),
+            "tpsa": round(self.calculate_tpsa_cached(smiles), 1),
+            "molecular_weight": round(self.calculate_mw_cached(smiles), 1),
+            "hbd": self.calculate_hbd_cached(smiles),
+            "hba": self.calculate_hba_cached(smiles),
+            "rotatable_bonds": self.calculate_rb_cached(smiles),
         }

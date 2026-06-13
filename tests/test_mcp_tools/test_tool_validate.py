@@ -2,10 +2,8 @@
 测试 MCP 工具: validate_smiles
 """
 
-import pytest
 
 from adc_linker_agent.mcp_tools.tool_validate import validate_smiles
-
 
 # ─── 复用 domain 测试中的 SMILES ───
 ASPIRIN_SMILES = "CC(=O)Oc1ccccc1C(=O)O"

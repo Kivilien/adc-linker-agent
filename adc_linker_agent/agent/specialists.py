@@ -1,46 +1,49 @@
 """
-专长 Agent 定义（Week 5 Multi-Agent）
+专长 Agent 定义（架构重写 v2）
 
-三个专长 Agent，每个只有完成任务所需的最小工具集：
+每个专长 Agent 现在写入双通道：
+  1. messages: AIMessage（供 LLM 对话上下文）
+  2. shared_context.<domain>_data: 结构化数据（供 UI 渲染 + 综合器读取）
 
-  PropertyAgent:      分子性质计算（3 tools）
-  PHAgent:            pH 稳定性分析（2 tools）
-  LinkerDesignAgent:  连接子设计（6 tools，全工具集）
-
-类比: 医院分诊
-  - 全科医生(Supervisor) 问诊 → 决定挂哪个科
-  - 心脏科(PropertyAgent) 只关心心电图/血压 → 不用看胃镜
-  - 消化科(PHAgent) 只关心胃镜/pH → 不用看心电图
-  - 药剂师(LinkerDesignAgent) 需要全部数据 → 综合配方
-
-实现模式:
-  每个专长 Agent 内部处理 tool_call 循环。
-  调用 model → 有 tool_calls? → 执行工具 → 再次调用 model → 返回最终结果。
-  这样 supervisor 拿到的是"完整答复"而非"工具请求"。
+容错机制（保留）:
+  - LLM 调用重试：指数退避，最多 3 次
+  - 工具执行重试：区分瞬时错误和永久错误
+  - 上下文裁剪：token 超过 100k 时保留 system + 最后 8 条消息
 """
 
+import json
+import time
+from collections.abc import Callable
 from typing import Any
 
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 
 from adc_linker_agent.agent.model_factory import create_model
-from adc_linker_agent.agent.state import MultiAgentState
+from adc_linker_agent.agent.state import AgentState
 from adc_linker_agent.agent.tools import (
     ALL_TOOLS,
     calculate_properties,
     check_lipinski,
+    check_toxicity,
     design_linker,
     predict_ph_stability,
     predict_ph_stability_all_phases,
     search_linker_scaffolds,
+    search_literature,
     validate_smiles,
 )
 
 # ─── 工具集分配（最小权限原则） ───
 
-PROPERTY_TOOLS = [validate_smiles, calculate_properties, check_lipinski]
+PROPERTY_TOOLS = [
+    validate_smiles,
+    calculate_properties,
+    check_lipinski,
+    check_toxicity,
+]
 PH_TOOLS = [predict_ph_stability, predict_ph_stability_all_phases]
-LINKER_TOOLS = ALL_TOOLS  # 连接子设计需要全部信息
+LINKER_TOOLS = ALL_TOOLS
+LITERATURE_TOOLS = [search_literature]
 
 
 # ─── 专长 Agent 系统提示 ───
@@ -49,96 +52,201 @@ PROPERTY_SYSTEM_PROMPT = """You are the Molecular Property Specialist.
 
 Your ONLY job: calculate and interpret molecular properties.
 
-You have access to:
+Tools:
 - validate_smiles: verify SMILES validity
 - calculate_properties: compute 8 key descriptors (LogP, QED, SAS, TPSA, etc.)
 - check_lipinski: Lipinski's Rule of Five evaluation
+- check_toxicity: PAINS/Brenk toxicity alerts (CRITICAL for safety)
 
 Workflow:
-1. ALWAYS validate the SMILES first
-2. Calculate all properties
-3. Check Lipinski rules
-4. Report results with interpretation (not just numbers)
+1. ALWAYS validate SMILES first
+2. Calculate properties + check_lipinski + check_toxicity in parallel
+3. Report results
 
-When reporting, explain what each value means for ADC linker design:
-- LogP 1-3 ideal, >5 means too hydrophobic (aggregation risk)
-- QED >0.5 drug-like, <0.3 needs optimization
-- SAS <4 easy to synthesize, >6 complex/expensive
-- TPSA 80-140 ideal for membrane permeability
+Toxicity rules:
+- PAINS alert → false-positive bioactive compound, NOT developable
+- Brenk alert → potentially toxic/reactive/unstable substructure
+- If has_alerts=True: list each alert by name with a one-sentence explanation.
+  If clean: one line, no paragraph.
 
-Return a COMPLETE analysis. The supervisor needs your full output."""
+Output style:
+- No ## headings, no markdown tables for single molecules
+- No decorative emoji
+- Single molecule: indent list of properties, judgment line at end
+- Do NOT explain normal values — scientists know them"""
 
 PH_SYSTEM_PROMPT = """You are the pH Stability Specialist.
 
 Your ONLY job: analyze pH-dependent stability of linker molecules.
 
-You have access to:
+Tools:
 - predict_ph_stability: check stability at a specific pH
 - predict_ph_stability_all_phases: check all 6 physiological pH phases
 
 Workflow:
-1. Check stability at key pH points (7.4 blood, 5.0 lysosome)
-2. Run the full physiological phase analysis
-3. For each pH-sensitive group found, explain what it means
+1. Call predict_ph_stability_all_phases
+2. Check library_coverage:
+   - < 1.0: list uncovered groups
+   - = 0: state "无已知 pH 敏感官能团"
+3. Flag: blood-unstable = toxicity risk; lysosome-stable = ineffective
 
-ADC linker design rule:
-- MUST be stable at pH 7.4 (blood circulation)
-- SHOULD cleave at pH 5.0-5.5 (lysosome)
-- Partial instability at pH 6.5 (tumor microenv) is acceptable but needs monitoring
+ADC linker rule: stable at blood pH 7.4, cleaved at lysosome pH 5.0-5.5.
 
-Flag any concerning patterns:
-- Unstable at pH 7.4 → linker will release payload in bloodstream (toxic!)
-- Stable at pH 5.0 → linker won't release payload (ineffective!)
-
-Return a COMPLETE analysis. The supervisor needs your full output."""
+Output style:
+- One line per phase with status
+- Do NOT annotate every phase — only unstable or borderline ones
+- Library gaps: one line"""
 
 LINKER_SYSTEM_PROMPT = """You are the ADC Linker Design Specialist.
 
-Your ONLY job: help design and evaluate ADC linker candidates.
+Your ONLY job: design, evaluate, and optimize ADC linker candidates.
 
-You have access to ALL tools:
-- validate_smiles, calculate_properties, check_lipinski
-- predict_ph_stability, predict_ph_stability_all_phases
-- search_linker_scaffolds, design_linker (optimization loop)
+CRITICAL RULES:
+1. NEVER INVENT SMILES. Only use SMILES from tools or user input.
+2. If validate_smiles returns invalid, STOP.
+3. Do not call the same tool with the same arguments more than twice.
 
-Workflow for linker design:
-1. Understand the user's requirements (pH trigger, payload type, stability needs)
-2. Call design_linker to run the full optimization loop
-3. Review ranked candidates and their multi-criteria scores
-4. For top candidates, verify properties with calculate_properties
-5. Verify pH stability with predict_ph_stability_all_phases
-5. Provide design recommendations with property comparison
+Tools: validate_smiles, calculate_properties, check_lipinski, check_toxicity,
+       predict_ph_stability, predict_ph_stability_all_phases,
+       search_linker_scaffolds, design_linker, search_literature
 
-Workflow for linker evaluation:
-1. Validate the SMILES
-2. Calculate all properties
-3. Assess pH stability
-4. Compare against ideal ADC linker criteria
+Call independent tools in parallel when possible.
 
-Return a COMPREHENSIVE analysis with actionable recommendations."""
+Output style:
+- 3+ candidates: comparison table (this is the ONLY valid use of tables)
+- Single candidate: indent list, no table
+- Top recommendation: one line with name, score, SMILES
+- No ## headings, no decorative emoji"""
+
+LITERATURE_SYSTEM_PROMPT = """You are the ADC Literature Research Specialist.
+
+Your ONLY job: search and verify claims against published literature.
+
+Tool: search_literature
+
+Workflow:
+1. Identify claims to verify
+2. Construct 2-3 targeted English queries
+3. Call search_literature for ALL queries in ONE response
+4. Provide findings with citations
+
+Critical rules:
+- NEVER fabricate titles, authors, or DOIs
+- No results → state "未找到相关文献"
+- Always include DOI link (https://doi.org/...)
+- Distinguish: direct evidence / review mention / no evidence
+
+Output style:
+- Each paper: one line. Number. Authors. *Title*. Journal Year. DOI
+- No ## headings, no tables for literature results
+- No results: one sentence with suggestion for alternative terms"""
 
 
-# ─── 工具名 → 函数映射（用于 specialist 内部执行 tool_calls） ───
+# ─── 容错与上下文管理 ───
+
+_LLM_MAX_RETRIES = 3
+_LLM_BACKOFF_BASE = 2.0
+_TOOL_MAX_RETRIES = 2
+_MAX_CONTEXT_EST_TOKENS = 100_000
+_TRIM_KEEP_LAST = 8
+
+_TRANSIENT_PATTERNS = (
+    "timeout", "connection", "rate limit", "rate_limit",
+    "503", "504", "429", "temporary", "throttl", "unavailable",
+)
+
+
+def _estimate_tokens(messages: list) -> int:
+    """粗略估计消息列表的 token 数（2 chars ≈ 1 token）。"""
+    total = 0
+    for m in messages:
+        content = str(getattr(m, "content", ""))
+        total += len(content) // 2
+    return total
+
+
+def _call_model_with_retry(model, messages: list, name: str = "") -> Any:
+    """带指数退避的 LLM 调用重试。"""
+    last_error = None
+    for attempt in range(_LLM_MAX_RETRIES):
+        try:
+            return model.invoke(messages)
+        except Exception as e:
+            last_error = e
+            if attempt < _LLM_MAX_RETRIES - 1:
+                delay = _LLM_BACKOFF_BASE ** attempt
+                print(
+                    f"[{name or 'specialist'}] LLM call attempt "
+                    f"{attempt + 1} failed ({type(e).__name__}), "
+                    f"retrying in {delay:.0f}s..."
+                )
+                time.sleep(delay)
+    raise last_error
+
+
+def _execute_tool_with_retry(func, args: dict, name: str = "") -> Any:
+    """工具执行重试，仅对瞬时错误重试。"""
+    for attempt in range(_TOOL_MAX_RETRIES):
+        try:
+            return func.invoke(args)
+        except Exception as e:
+            msg = str(e).lower()
+            is_transient = any(p in msg for p in _TRANSIENT_PATTERNS)
+            if is_transient and attempt < _TOOL_MAX_RETRIES - 1:
+                delay = _LLM_BACKOFF_BASE ** attempt
+                print(
+                    f"[{name or 'tool'}] transient error on attempt "
+                    f"{attempt + 1} — retrying in {delay:.0f}s..."
+                )
+                time.sleep(delay)
+                continue
+            raise
+
+
+def _trim_context(messages: list) -> list:
+    """上下文裁剪：token 超限时保留 system + 最后 N 条消息。"""
+    if _estimate_tokens(messages) < _MAX_CONTEXT_EST_TOKENS:
+        return messages
+    if len(messages) <= _TRIM_KEEP_LAST + 1:
+        return messages
+    trim_from = max(1, len(messages) - _TRIM_KEEP_LAST)
+    return [messages[0]] + messages[trim_from:]
+
+
+# ─── 工具名 → 函数映射 ───
 
 _TOOL_MAP = {
     "validate_smiles": validate_smiles,
     "calculate_properties": calculate_properties,
     "check_lipinski": check_lipinski,
+    "check_toxicity": check_toxicity,
     "predict_ph_stability": predict_ph_stability,
     "predict_ph_stability_all_phases": predict_ph_stability_all_phases,
     "search_linker_scaffolds": search_linker_scaffolds,
     "design_linker": design_linker,
+    "search_literature": search_literature,
 }
 
 
-def _execute_tool_calls(ai_message: AIMessage) -> list[ToolMessage]:
-    """
-    执行 AIMessage 中的 tool_calls 并返回 ToolMessage 列表。
+# ─── 工具执行（返回 ToolMessage + 原始结果） ───
 
-    这是 specialist 内部的工具执行循环的核心。
-    从 tool_call 中提取函数名和参数 → 调用对应函数 → 包装为 ToolMessage。
+
+def _execute_tool_calls(
+    ai_message: AIMessage,
+) -> tuple[list[ToolMessage], dict[str, Any]]:
+    """
+    执行 AIMessage 中的 tool_calls，返回 ToolMessage 列表和原始结果。
+
+    返回:
+      (tool_messages, raw_results)
+      - tool_messages: 用于 LLM 上下文的 ToolMessage 列表
+      - raw_results: {tool_name: result_dict} 用于提取结构化数据
+
+    区分瞬时/永久错误，瞬时错误自动重试。
     """
     tool_messages: list[ToolMessage] = []
+    raw_results: dict[str, Any] = {}
+
     for tc in ai_message.tool_calls:
         tool_name = tc.get("name", "")
         tool_args = tc.get("args", {})
@@ -147,17 +255,94 @@ def _execute_tool_calls(ai_message: AIMessage) -> list[ToolMessage]:
         func = _TOOL_MAP.get(tool_name)
         if func is None:
             content = f"Error: unknown tool '{tool_name}'"
+            raw_results[tool_name] = {"error": content}
         else:
             try:
-                result = func.invoke(tool_args)
-                import json
-
-                content = json.dumps(result, ensure_ascii=False, indent=2)
+                result = _execute_tool_with_retry(
+                    func, tool_args, name=tool_name
+                )
+                raw_results[tool_name] = result
+                content = json.dumps(
+                    result, ensure_ascii=False, indent=2
+                )
             except Exception as e:
                 content = f"Error executing {tool_name}: {e}"
+                raw_results[tool_name] = {"error": str(e)}
 
-        tool_messages.append(ToolMessage(content=content, tool_call_id=call_id))
-    return tool_messages
+        tool_messages.append(
+            ToolMessage(content=content, tool_call_id=call_id)
+        )
+
+    return tool_messages, raw_results
+
+
+# ─── 结构化数据提取函数（每个 specialist 不同） ───
+
+
+def _extract_property_data(raw_results: dict[str, Any]) -> dict:
+    """从工具结果中提取性质数据 → shared_context.property_data"""
+    smiles = ""
+    if "validate_smiles" in raw_results:
+        smiles = raw_results["validate_smiles"].get("smiles", "")
+
+    props = None
+    if "calculate_properties" in raw_results:
+        props = raw_results["calculate_properties"]
+        if "error" not in props:
+            props = {k: v for k, v in props.items() if k != "smiles"}
+
+    lipinski = raw_results.get("check_lipinski")
+    toxicity = raw_results.get("check_toxicity")
+
+    return {
+        "smiles": smiles,
+        "properties": props,
+        "lipinski": lipinski,
+        "toxicity": toxicity,
+    }
+
+
+def _extract_ph_data(raw_results: dict[str, Any]) -> dict:
+    """从工具结果中提取 pH 数据 → shared_context.ph_data"""
+    # predict_ph_stability_all_phases 返回 {phase: {result...}}
+    all_phases = raw_results.get("predict_ph_stability_all_phases", {})
+    if all_phases and "error" not in all_phases:
+        return all_phases
+
+    # 降级：使用单个 pH 检测结果
+    single = raw_results.get("predict_ph_stability", {})
+    if single and "error" not in single:
+        return {"single_check": single}
+
+    return {}
+
+
+def _extract_design_report(raw_results: dict[str, Any]) -> dict | None:
+    """从工具结果中提取设计报告 → shared_context.design_report"""
+    design = raw_results.get("design_linker", {})
+    if "_report" in design:
+        return design["_report"]
+    return None
+
+
+def _extract_literature_data(raw_results: dict[str, Any]) -> dict:
+    """从工具结果中提取文献数据 → shared_context.literature_data"""
+    all_papers: list[dict] = []
+    all_queries: list[str] = []
+
+    # 汇总所有 search_literature 调用的结果
+    for tool_name, result in raw_results.items():
+        if tool_name == "search_literature" and isinstance(result, dict):
+                all_queries.append(result.get("query", ""))
+                papers = result.get("papers", [])
+                if isinstance(papers, list):
+                    all_papers.extend(papers)
+
+    return {
+        "papers": all_papers,
+        "queries": all_queries,
+        "total_found": len(all_papers),
+    }
 
 
 # ─── 专长 Agent 工厂函数 ───
@@ -167,84 +352,169 @@ def create_specialist_node(
     name: str,
     system_prompt: str,
     tools: list[Any],
+    context_key: str,
+    extract_fn: Callable[[dict[str, Any]], Any],
 ) -> Any:
     """
-    创建一个专长 Agent 节点。
+    创建一个专长 Agent 节点（架构 v2）。
 
-    每个专长 Agent 内部处理完整的 tool_call 循环:
-      model(system_prompt + messages) → tool_calls? → execute → model again → final response
+    相比旧版的关键变更：
+      - 工具执行后保留原始结果（raw_results）
+      - 使用 extract_fn 提取结构化数据写入 shared_context
+      - 返回双通道：messages（AIMessage）+ shared_context 更新
 
     Args:
         name: Agent 名称（用于日志和路由）
         system_prompt: 专长 Agent 的系统提示
         tools: 该 Agent 可用的工具列表（最小权限分配）
+        context_key: shared_context 中的键名（如 "property_data"）
+        extract_fn: 从 raw_results 提取结构化数据的函数
 
     Returns:
-        可放入 StateGraph.add_node() 的节点函数
+        LangGraph 节点函数
     """
     model = create_model(temperature=0.2, tools=tools)
 
-    def specialist_node(state: MultiAgentState) -> dict:
-        """专长 Agent 节点: 处理分配的任务并返回完整结果。"""
+    def specialist_node(state: AgentState) -> dict:
+        """专长 Agent 节点: 执行任务，写入双通道。"""
         messages = list(state["messages"])
 
-        # 注入系统提示（每次调用时注入，确保 LLM 知道自己的角色）
+        # 注入系统提示
         system_msg = SystemMessage(content=system_prompt)
-
-        # 构建请求消息: [system_prompt] + [history]
         request_messages = [system_msg] + messages
 
-        # 内部循环: model → tool_calls? → execute → model
-        max_iterations = 5  # 防止无限循环
-        for _ in range(max_iterations):
-            response = model.invoke(request_messages)
+        # 迭代上限
+        max_iterations = min(max(len(tools) * 2, 4), 16)
+        tool_calls_made = 0
 
-            # 如果有 tool_calls，执行它们并继续
+        # 累积所有工具调用结果（用于最终数据提取）
+        all_raw_results: dict[str, Any] = {}
+
+        for _iteration in range(max_iterations):
+            # 上下文裁剪
+            request_messages = _trim_context(request_messages)
+
+            # LLM 调用（带重试）
+            try:
+                response = _call_model_with_retry(
+                    model, request_messages, name=name
+                )
+            except Exception as e:
+                return {
+                    "messages": [
+                        AIMessage(
+                            content=(
+                                f"[{name}] LLM 调用失败"
+                                f"（{_LLM_MAX_RETRIES} 次重试后）: {e}"
+                            )
+                        )
+                    ],
+                    "shared_context": {
+                        "errors": [
+                            {
+                                "agent": name,
+                                "phase": "llm_call",
+                                "error": str(e),
+                            }
+                        ]
+                    },
+                }
+
+            # 有 tool_calls → 执行并继续
             if hasattr(response, "tool_calls") and response.tool_calls:
-                tool_messages = _execute_tool_calls(response)
-                # 把 AIMessage (含 tool_calls) 和 ToolMessages 都加入上下文
+                tool_messages, raw_results = _execute_tool_calls(response)
+                # 累积原始结果
+                all_raw_results.update(raw_results)
                 request_messages.append(response)
                 request_messages.extend(tool_messages)
+                tool_calls_made += len(response.tool_calls)
                 continue
 
-            # 没有 tool_calls → 最终回复
-            return {"messages": [response]}
+            # 无 tool_calls → 最终回复
+            # 提取结构化数据
+            try:
+                structured_data = extract_fn(all_raw_results)
+            except Exception:
+                structured_data = None
 
-        # 到达最大迭代次数 → 强制返回最后一条消息
+            # 构建共享上下文更新
+            shared_update: dict = {}
+            if structured_data is not None:
+                shared_update[context_key] = structured_data
+
+            return {
+                "messages": [response],
+                "shared_context": shared_update,
+            }
+
+        # 达到最大迭代次数 → 强制返回
+        # 即使超轮次，仍尝试提取已有的结构化数据
+        try:
+            structured_data = extract_fn(all_raw_results)
+        except Exception:
+            structured_data = None
+
+        shared_update: dict = {}
+        if structured_data is not None:
+            shared_update[context_key] = structured_data
+        shared_update["errors"] = [
+            {
+                "agent": name,
+                "phase": "max_iterations",
+                "error": (
+                    f"已执行 {tool_calls_made} 次工具调用"
+                    f"（已达 {max_iterations} 轮上限）"
+                ),
+            }
+        ]
+
         return {
             "messages": [
                 AIMessage(
                     content=(
-                        f"[{name}] 达到最大工具调用次数。"
-                        f"请 supervisor 根据以上工具结果综合结论。"
+                        f"[{name}] 已执行 {tool_calls_made} 次工具调用"
+                        f"（已达 {max_iterations} 轮迭代上限）。"
                     )
                 )
-            ]
+            ],
+            "shared_context": shared_update,
         }
 
-    # 附加元数据（方便调试）
     specialist_node.__name__ = name
     specialist_node.__doc__ = f"{name}: {system_prompt[:100]}..."
-
     return specialist_node
 
 
-# ─── 三个专长 Agent ───
+# ─── 四个专长 Agent ───
 
 property_agent = create_specialist_node(
     name="property_agent",
     system_prompt=PROPERTY_SYSTEM_PROMPT,
     tools=PROPERTY_TOOLS,
+    context_key="property_data",
+    extract_fn=_extract_property_data,
 )
 
 ph_agent = create_specialist_node(
     name="ph_agent",
     system_prompt=PH_SYSTEM_PROMPT,
     tools=PH_TOOLS,
+    context_key="ph_data",
+    extract_fn=_extract_ph_data,
 )
 
 linker_agent = create_specialist_node(
     name="linker_agent",
     system_prompt=LINKER_SYSTEM_PROMPT,
     tools=LINKER_TOOLS,
+    context_key="design_report",
+    extract_fn=_extract_design_report,
+)
+
+literature_agent = create_specialist_node(
+    name="literature_agent",
+    system_prompt=LITERATURE_SYSTEM_PROMPT,
+    tools=LITERATURE_TOOLS,
+    context_key="literature_data",
+    extract_fn=_extract_literature_data,
 )

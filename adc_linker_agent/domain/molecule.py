@@ -8,6 +8,7 @@ ADC Linker Domain Models
 "一个连接子长什么样，包含哪些字段，字段之间有什么关系"。
 """
 
+import contextlib
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
@@ -175,3 +176,92 @@ class ADCLinker(BaseModel):
             f"  LogP: {self.logp or 'N/A'}, QED: {self.qed or 'N/A'}, "
             f"SAS: {self.sas or 'N/A'}, TPSA: {self.tpsa or 'N/A'}"
         )
+
+
+# ─── 分子结构渲染 ───
+
+
+def render_molecule_image(smiles: str, size: tuple[int, int] = (400, 250)) -> bytes | None:
+    """
+    将 SMILES 渲染为 PNG 图片 bytes。
+
+    用于 Streamlit/Web 展示分子结构。
+    主方案: RDKit MolToImage (PNG)
+    降级: MolToSVG (纯文本，零图形依赖)
+
+    Args:
+        smiles: 有效的 SMILES 字符串
+        size: 图片尺寸 (width, height)
+
+    Returns:
+        PNG bytes，或 None（渲染失败时）
+    """
+    from io import BytesIO
+
+    from rdkit import Chem
+    from rdkit.Chem import Draw
+
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return None
+
+    # 计算 2D 坐标（如 SMILES 无坐标信息）
+    with contextlib.suppress(Exception):
+        Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
+    try:
+        from rdkit.Chem import AllChem
+    except ImportError:
+        pass
+    else:
+        with contextlib.suppress(Exception):
+            AllChem.Compute2DCoords(mol)
+
+    # 方案 A: PNG 图片
+    try:
+        img = Draw.MolToImage(mol, size=size, kekulize=True)
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        pass
+
+    # 方案 B: SVG 降级（可能没有 2D 坐标也能渲染）
+    try:
+        svg = Draw.MolToSVG(mol, width=size[0], height=size[1])
+        return svg.encode("utf-8")
+    except Exception:
+        return None
+
+
+def render_molecule_svg(smiles: str, size: tuple[int, int] = (400, 250)) -> str | None:
+    """
+    将 SMILES 渲染为 SVG 字符串。
+
+    纯文本输出，零图形依赖，兼容性最好。
+
+    Args:
+        smiles: 有效的 SMILES 字符串
+        size: 图片尺寸
+
+    Returns:
+        SVG 字符串，或 None（渲染失败时）
+    """
+    from rdkit import Chem
+    from rdkit.Chem import Draw
+
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return None
+
+    try:
+        from rdkit.Chem import AllChem
+    except ImportError:
+        pass
+    else:
+        with contextlib.suppress(Exception):
+            AllChem.Compute2DCoords(mol)
+
+    try:
+        return Draw.MolToSVG(mol, width=size[0], height=size[1])
+    except Exception:
+        return None

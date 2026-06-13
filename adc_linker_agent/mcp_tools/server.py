@@ -23,10 +23,12 @@ from mcp.server.fastmcp import FastMCP
 
 from .tool_design import design_linker as _design_linker
 from .tool_linker import search_linker_scaffolds as _search_linker_scaffolds
+from .tool_literature import search_literature as _search_literature
 from .tool_ph import predict_ph_stability as _predict_ph_stability
 from .tool_ph import predict_ph_stability_all_phases as _predict_ph_stability_all_phases
 from .tool_property import calculate_properties as _calculate_properties
 from .tool_property import check_lipinski as _check_lipinski
+from .tool_property import check_toxicity as _check_toxicity
 from .tool_validate import validate_smiles as _validate_smiles
 
 # ─── 创建 MCP 服务器实例 ───
@@ -36,10 +38,12 @@ mcp = FastMCP(
         "You are an ADC (Antibody-Drug Conjugate) linker design assistant. "
         "Use these tools to validate SMILES strings, calculate molecular properties, "
         "predict pH-dependent stability, search known linker scaffolds, "
-        "and design linker candidates. "
+        "design linker candidates, and search scientific literature for evidence. "
         "ALWAYS call validate_smiles before other tools when the user provides a SMILES. "
         "When evaluating linker candidates, check both properties AND pH stability "
-        "across all physiological phases (blood → lysosome)."
+        "across all physiological phases (blood → lysosome). "
+        "Use search_literature to verify claims against published research "
+        "and provide DOI-linked citations."
     ),
 )
 
@@ -49,10 +53,12 @@ mcp = FastMCP(
 mcp.tool()(_validate_smiles)
 mcp.tool()(_calculate_properties)
 mcp.tool()(_check_lipinski)
+mcp.tool()(_check_toxicity)
 mcp.tool()(_predict_ph_stability)
 mcp.tool()(_predict_ph_stability_all_phases)
 mcp.tool()(_search_linker_scaffolds)
 mcp.tool()(_design_linker)
+mcp.tool()(_search_literature)
 
 
 # ─── 入口点 ───

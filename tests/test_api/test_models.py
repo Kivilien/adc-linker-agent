@@ -6,14 +6,14 @@ import pytest
 from pydantic import ValidationError
 
 from adc_linker_agent.api.models import (
+    AgentMessage,
     AgentQueryRequest,
     AgentQueryResponse,
-    AgentMessage,
-    HealthResponse,
-    ToolsListResponse,
-    ToolInfo,
     ErrorResponse,
+    HealthResponse,
     ToolCallInfo,
+    ToolInfo,
+    ToolsListResponse,
 )
 
 
@@ -100,9 +100,9 @@ class TestHealthResponse:
     def test_default_values(self):
         resp = HealthResponse()
         assert resp.status == "ok"
-        assert resp.version == "0.1.0"
+        assert resp.version == "1.1.0"
         assert resp.agent_mode == "multi"
-        assert resp.tools_available == 7
+        assert resp.tools_available == 9
 
     def test_custom_status(self):
         resp = HealthResponse(status="no_api_key")

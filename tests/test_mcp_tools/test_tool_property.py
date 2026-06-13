@@ -2,10 +2,8 @@
 测试 MCP 工具: calculate_properties, check_lipinski
 """
 
-import pytest
 
 from adc_linker_agent.mcp_tools.tool_property import calculate_properties, check_lipinski
-
 
 # ─── 测试用 SMILES ───
 ASPIRIN_SMILES = "CC(=O)Oc1ccccc1C(=O)O"      # 阿司匹林

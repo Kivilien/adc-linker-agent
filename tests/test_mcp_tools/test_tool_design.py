@@ -2,7 +2,6 @@
 测试 MCP 设计工具：design_linker
 """
 
-import pytest
 
 from adc_linker_agent.mcp_tools.tool_design import design_linker
 
@@ -108,7 +107,7 @@ class TestDesignLinkerTool:
             assert c["properties"]["qed"] >= 0.3
             assert c["properties"]["sas"] <= 6.0
 
-    def test_low_target_ph_returns_pH_sensitive(self):
+    def test_low_target_ph_returns_ph_sensitive(self):
         """低 pH 目标应该优先返回 pH 敏感连接子"""
         result = design_linker(
             target_ph=5.0,

@@ -5,13 +5,11 @@
 import pytest
 
 from adc_linker_agent.domain.ph_simulator import (
-    PhSimulator,
-    PhStabilityResult,
-    PhLabileGroup,
     PHYSIOLOGICAL_PH,
+    PhLabileGroup,
+    PhSimulator,
     quick_check,
 )
-
 
 # ─── 测试用分子 ───
 
@@ -160,3 +158,180 @@ class TestCustomLabileGroups:
         # 乙醚包含 [OX2][CX4] 模式
         result = sim.predict("CCOCC", ph=5.0)
         assert "test_custom" in result.labile_groups_found
+
+
+# ─── 酶催化机制测试 ───
+
+class TestEnzymaticMechanism:
+    """测试酶催化裂解官能团（Week 4 新增）"""
+
+    sim = PhSimulator()
+
+    def test_val_dipeptide_labile_in_lysosome(self):
+        """Val-dipeptide 在溶酶体 pH 5.0 应被 Cathepsin B 识别为不稳定"""
+        # 缬氨酰胺：CH(CH3)2-CH(NH2)-C(=O)-NH-CH3
+        result = self.sim.predict("CC(C)C(N)C(=O)NC", ph=5.0)
+        assert not result.is_stable
+        assert "val_dipeptide" in result.labile_groups_found
+        # 推荐文字应提及 Cathepsin B
+        assert "Cathepsin B" in result.recommendation
+
+    def test_val_dipeptide_stable_in_blood(self):
+        """Val-dipeptide 在血液 pH 7.4 应稳定（酶在胞外不活跃）"""
+        result = self.sim.predict("CC(C)C(N)C(=O)NC", ph=7.4)
+        assert result.is_stable
+        assert "val_dipeptide" in result.stable_groups_found or not result.labile_groups_found
+
+    def test_glucuronide_labile_in_lysosome(self):
+        """Glucuronide 在溶酶体 pH 5.0 应被 β-glucuronidase 识别"""
+        # 葡萄糖苷酸苯酯（简化）
+        result = self.sim.predict(
+            "O=C(O)C1OC(Oc2ccccc2)C(O)C(O)C1O", ph=5.0
+        )
+        assert not result.is_stable
+        assert "glucuronide" in result.labile_groups_found
+
+    def test_glucuronide_stable_in_blood(self):
+        """Glucuronide 在血液 pH 7.4 应稳定"""
+        result = self.sim.predict(
+            "O=C(O)C1OC(Oc2ccccc2)C(O)C(O)C1O", ph=7.4
+        )
+        assert result.is_stable
+
+    def test_beta_lactam_labile_in_lysosome(self):
+        """β-lactam 在酸性条件下应被 β-lactamase 触发开环"""
+        # β-丙内酰胺 (azetidin-2-one)
+        result = self.sim.predict("O=C1CCN1", ph=4.0)
+        assert not result.is_stable
+        assert "beta_lactam" in result.labile_groups_found
+
+
+# ─── 氧化还原机制测试 ───
+
+class TestRedoxMechanism:
+    """测试氧化还原裂解官能团（Week 4 新增）"""
+
+    sim = PhSimulator()
+
+    def test_disulfide_labile_in_tumor_cell(self):
+        """二硫键在肿瘤细胞 pH 5.0 (高 GSH) 应被还原裂解"""
+        # 二乙基二硫醚
+        result = self.sim.predict("CCSSCC", ph=5.0)
+        assert not result.is_stable
+        assert "disulfide" in result.labile_groups_found
+        # 推荐文字应归类为氧化还原机制
+        assert "氧化还原" in result.recommendation
+
+    def test_disulfide_stable_in_blood(self):
+        """二硫键在血液 pH 7.4 (低 GSH) 应稳定"""
+        result = self.sim.predict("CCSSCC", ph=7.4)
+        assert result.is_stable
+        assert "disulfide" in result.stable_groups_found or not result.labile_groups_found
+
+    def test_azo_labile_in_hypoxia(self):
+        """偶氮键在缺氧/酸性条件 (pH 5.0) 应被偶氮还原酶裂解"""
+        # 偶氮苯
+        result = self.sim.predict("c1ccccc1N=Nc2ccccc2", ph=5.0)
+        assert not result.is_stable
+        assert "azo" in result.labile_groups_found
+
+    def test_azo_stable_in_blood(self):
+        """偶氮键在血液 pH 7.4 (有氧) 应稳定"""
+        result = self.sim.predict("c1ccccc1N=Nc2ccccc2", ph=7.4)
+        assert result.is_stable
+
+
+# ─── 酸敏感扩展机制测试 ───
+
+class TestAcidLabileExtended:
+    """测试新增的酸敏感官能团（Week 4 新增）"""
+
+    sim = PhSimulator()
+
+    def test_orthoester_labile_in_lysosome(self):
+        """原酸酯在溶酶体 pH 5.0 应快速水解"""
+        # 原甲酸三甲酯
+        result = self.sim.predict("C(OC)(OC)(OC)C", ph=5.0)
+        assert not result.is_stable
+        assert "orthoester" in result.labile_groups_found
+
+    def test_orthoester_stable_in_blood(self):
+        """原酸酯在血液 pH 7.4 应稳定"""
+        result = self.sim.predict("C(OC)(OC)(OC)C", ph=7.4)
+        assert result.is_stable
+
+    def test_phosphoramidate_labile_in_acidic(self):
+        """磷酰胺酯在强酸 pH 4.0 应 P-N 键断裂"""
+        # 磷酸二甲酯酰胺
+        result = self.sim.predict("COP(=O)(OC)NC", ph=4.0)
+        assert not result.is_stable
+        assert "phosphoramidate" in result.labile_groups_found
+
+    def test_phosphoramidate_stable_in_blood(self):
+        """磷酰胺酯在血液 pH 7.4 应稳定"""
+        result = self.sim.predict("COP(=O)(OC)NC", ph=7.4)
+        assert result.is_stable
+
+
+# ─── 混合机制场景测试 ───
+
+class TestMixedMechanisms:
+    """测试分子含多种裂解机制时的表现（Week 4 新增）"""
+
+    sim = PhSimulator()
+
+    def test_disulfide_plus_ester(self):
+        """含二硫键 + 酯键的分子，在 pH 5.0 两种机制都应触发"""
+        # 简单二硫键 + 酯
+        result = self.sim.predict("CCSSCC(=O)OC", ph=5.0)
+        assert not result.is_stable
+        # 两种都应被检测
+        assert "disulfide" in result.labile_groups_found
+        assert "carboxylic_ester" in result.labile_groups_found
+        # 推荐文字应同时提及氧化还原和酸敏感
+        assert "氧化还原" in result.recommendation or "酸敏感" in result.recommendation
+
+    def test_ideal_adc_linker_pattern(self):
+        """理想 ADC 连接子：血液稳定 + 溶酶体多重触发"""
+        # Val-dipeptide + disulfide 混合
+        smiles = "CC(C)C(N)C(=O)NCSSCC"
+        blood = self.sim.predict(smiles, ph=7.4)
+        lysosome = self.sim.predict(smiles, ph=5.0)
+        assert blood.is_stable, "Should be stable in blood"
+        assert not lysosome.is_stable, "Should be labile in lysosome"
+
+
+# ─── 规则库规模测试 ───
+
+class TestLibrarySize:
+    """验证规则库规模符合预期（Week 4 新增）"""
+
+    def test_total_groups_count(self):
+        """规则库应有 14 个官能团（7 原有 + 7 新增）"""
+        from adc_linker_agent.domain.ph_simulator import load_labile_groups
+        groups = load_labile_groups()
+        assert len(groups) == 14, f"Expected 14 groups, got {len(groups)}"
+
+    def test_mechanism_type_distribution(self):
+        """机制类型分布应合理"""
+        from adc_linker_agent.domain.ph_simulator import load_labile_groups
+        groups = load_labile_groups()
+        types = {}
+        for g in groups:
+            mt = getattr(g, 'mechanism_type', 'pH_sensitive')
+            types[mt] = types.get(mt, 0) + 1
+        assert types.get("pH_sensitive", 0) >= 7, "Should have at least 7 pH-sensitive groups"
+        assert types.get("enzymatic", 0) >= 2, "Should have at least 2 enzymatic groups"
+        assert types.get("redox", 0) >= 2, "Should have at least 2 redox groups"
+
+    def test_new_groups_have_trigger_description(self):
+        """新增官能团应有 trigger_description 字段"""
+        from adc_linker_agent.domain.ph_simulator import load_labile_groups
+        groups = load_labile_groups()
+        for g in groups:
+            assert g.trigger_description, (
+                f"Group '{g.name}' missing trigger_description"
+            )
+            assert g.mechanism_type in ("pH_sensitive", "enzymatic", "redox"), (
+                f"Group '{g.name}' has invalid mechanism_type: {g.mechanism_type}"
+            )

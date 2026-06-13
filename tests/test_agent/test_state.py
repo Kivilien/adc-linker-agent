@@ -2,7 +2,7 @@
 测试 AgentState 定义和消息管理
 """
 
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from adc_linker_agent.agent.state import AgentState
 

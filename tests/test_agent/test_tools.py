@@ -6,14 +6,13 @@ from langchain_core.tools import BaseTool
 
 from adc_linker_agent.agent.tools import (
     ALL_TOOLS,
-    validate_smiles,
     calculate_properties,
     check_lipinski,
     predict_ph_stability,
     predict_ph_stability_all_phases,
     search_linker_scaffolds,
+    validate_smiles,
 )
-
 
 # ─── 测试用 SMILES ───
 ASPIRIN_SMILES = "CC(=O)Oc1ccccc1C(=O)O"
@@ -29,9 +28,9 @@ class TestToolWrappers:
         for tool in ALL_TOOLS:
             assert isinstance(tool, BaseTool), f"{tool.name} is not BaseTool"
 
-    def test_seven_tools_in_list(self):
-        """ALL_TOOLS 应该包含 7 个工具"""
-        assert len(ALL_TOOLS) == 7
+    def test_nine_tools_in_list(self):
+        """ALL_TOOLS 应该包含 9 个工具（含毒性检测+文献搜索）"""
+        assert len(ALL_TOOLS) == 9
 
     def test_unique_tool_names(self):
         """工具名称应该不重复"""

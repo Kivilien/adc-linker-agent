@@ -2,12 +2,14 @@
 """Debug DeepSeek structured output and tool calling."""
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 def test_basic():
     print("=== 1. Basic chat ===")
-    from adc_linker_agent.agent.model_factory import create_model
     from langchain_core.messages import HumanMessage
+
+    from adc_linker_agent.agent.model_factory import create_model
 
     model = create_model(temperature=0.2)
     resp = model.invoke([HumanMessage(content="Say 'hello' in one word")])
@@ -15,9 +17,10 @@ def test_basic():
 
 def test_tool_calling():
     print("\n=== 2. Tool calling ===")
+    from langchain_core.messages import HumanMessage, SystemMessage
+
     from adc_linker_agent.agent.model_factory import create_model
     from adc_linker_agent.agent.tools import ALL_TOOLS
-    from langchain_core.messages import HumanMessage, SystemMessage
 
     model = create_model(temperature=0.2, tools=ALL_TOOLS[:2])
     resp = model.invoke([
@@ -32,10 +35,12 @@ def test_tool_calling():
 
 def test_structured_output():
     print("\n=== 3. Structured output ===")
-    from adc_linker_agent.agent.model_factory import create_model
+    from typing import Literal
+
     from langchain_core.messages import HumanMessage
     from pydantic import BaseModel
-    from typing import Literal
+
+    from adc_linker_agent.agent.model_factory import create_model
 
     class SimpleDecision(BaseModel):
         choice: Literal["A", "B"]
@@ -57,15 +62,18 @@ def test_structured_output():
 
 def test_supervisor():
     print("\n=== 4. Supervisor routing ===")
-    from adc_linker_agent.agent.model_factory import create_model
-    from adc_linker_agent.agent.graph import SupervisorDecision
     from langchain_core.messages import HumanMessage, SystemMessage
+
+    from adc_linker_agent.agent.graph import SupervisorDecision
+    from adc_linker_agent.agent.model_factory import create_model
 
     model = create_model(temperature=0.2, output_schema=SupervisorDecision)
 
     try:
         resp = model.invoke([
-            SystemMessage(content="You are a router. Route to property_agent for property questions."),
+            SystemMessage(
+                content="You are a router. Route to property_agent for property questions."
+            ),
             HumanMessage(content="Calculate molecular properties of benzene")
         ])
         print(f"  OK: next={resp.next}, reason={resp.reasoning[:60]}")
@@ -76,8 +84,9 @@ def test_supervisor():
 
 def test_full_graph():
     print("\n=== 5. Full multi-agent graph ===")
-    from adc_linker_agent.agent.graph import get_agent
     from langchain_core.messages import HumanMessage
+
+    from adc_linker_agent.agent.graph import get_agent
 
     graph, config = get_agent(mode="multi", thread_id="debug2")
     state = {"messages": [HumanMessage(content="Calculate properties of benzene (c1ccccc1)")]}

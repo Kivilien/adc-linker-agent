@@ -2,7 +2,6 @@
 测试 MCP 工具: search_linker_scaffolds
 """
 
-import pytest
 
 from adc_linker_agent.mcp_tools.tool_linker import search_linker_scaffolds
 

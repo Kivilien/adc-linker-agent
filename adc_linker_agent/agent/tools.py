@@ -17,13 +17,18 @@ LangChain 兼容的 Tool 对象，供 LangGraph Agent 调用。
 """
 
 from langchain_core.tools import tool
+from rdkit import Chem
+from rdkit.Chem import Descriptors, rdMolDescriptors
 
+from adc_linker_agent.domain.literature import LiteratureSearchEngine
 from adc_linker_agent.domain.ph_simulator import PhSimulator
-from adc_linker_agent.domain.properties import MolPropertyCalculator
+from adc_linker_agent.domain.properties import MolPropertyCalculator, check_toxicity_alerts
+from adc_linker_agent.utils.validators import validate_smiles_input
 
 # ─── 单例实例 ───
 _calc = MolPropertyCalculator()
 _sim = PhSimulator()
+_literature = LiteratureSearchEngine()
 
 
 # ─── 工具定义 ───
@@ -34,21 +39,25 @@ def validate_smiles(smiles: str) -> dict:
     """
     Validate a SMILES string and return basic molecular information.
 
-    ALWAYS call this FIRST when the user provides a SMILES string.
-    If valid=False, ask the user to provide a correct SMILES.
+    🚨 NEVER INVENT a SMILES to pass to this tool. Only validate SMILES that:
+    (1) were explicitly provided by the user, OR
+    (2) were returned by design_linker, search_linker_scaffolds, or calculate_properties.
+    If you don't have a real SMILES from one of these sources, ASK the user.
+    If valid=False, move on — do NOT retry with a modified SMILES.
 
     Args:
-        smiles: A SMILES string like "CC(=O)Oc1ccccc1C(=O)O" (aspirin)
-                or "c1ccccc1" (benzene).
+        smiles: A SMILES from user input or a tool result (never LLM-invented)
 
     Returns:
         dict with valid (bool), smiles (canonical), formula, molecular_weight
     """
-    from rdkit import Chem
-    from rdkit.Chem import Descriptors, rdMolDescriptors
-
     if not smiles or not smiles.strip():
         return {"valid": False, "smiles": smiles, "error": "Empty SMILES string"}
+
+    # 集中输入校验（长度、恶意模式检测）
+    validation_error = validate_smiles_input(smiles)
+    if validation_error:
+        return {"valid": False, "smiles": smiles, "error": validation_error}
 
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
@@ -105,6 +114,28 @@ def check_lipinski(smiles: str) -> dict:
 
 
 @tool
+def check_toxicity(smiles: str) -> dict:
+    """
+    Check for PAINS (Pan-Assay Interference Compounds) and Brenk toxicity alerts.
+
+    PAINS alerts flag compounds that frequently show false-positive bioactivity —
+    not developable as drugs. Brenk alerts flag potentially toxic, unstable, or
+    metabolically reactive substructures (alkylating agents, Michael acceptors, etc.).
+
+    🚨 CRITICAL: Call this for EVERY linker candidate before recommending it.
+    A linker with PAINS or Brenk alerts is a RED FLAG — warn the user loudly.
+
+    Args:
+        smiles: A valid SMILES string
+
+    Returns:
+        dict with has_alerts, alerts (list of {description, category}),
+        pains_count, brenk_count, summary
+    """
+    return check_toxicity_alerts(smiles)
+
+
+@tool
 def predict_ph_stability(smiles: str, ph: float = 7.4) -> dict:
     """
     Predict molecular stability at a specific pH value.
@@ -112,12 +143,19 @@ def predict_ph_stability(smiles: str, ph: float = 7.4) -> dict:
     Checks for pH-sensitive groups (hydrazone, acetal, ester, carbamate, etc.)
     Key pH values: 7.4=blood (must be stable), 5.0=lysosome (should cleave).
 
+    Also detects ALL functional groups in the molecule and reports which are
+    covered by the 7-rule library vs. outside it (library_coverage).
+    If library_coverage < 1.0, some groups' pH behavior is UNKNOWN —
+    discuss with the user.
+
     Args:
         smiles: A valid SMILES string
         ph: Target pH. Use 7.4 for blood stability, 5.0 for lysosomal cleavage check.
 
     Returns:
-        dict with is_stable, labile_groups_found, recommendation, context
+        dict with is_stable, labile_groups_found, recommendation, context,
+        all_detected_groups, groups_in_library, groups_outside_library,
+        library_coverage
     """
     try:
         result = _sim.predict(smiles, ph)
@@ -132,6 +170,10 @@ def predict_ph_stability(smiles: str, ph: float = 7.4) -> dict:
         "stable_groups_found": result.stable_groups_found,
         "recommendation": result.recommendation,
         "context": result.context,
+        "all_detected_groups": result.all_detected_groups,
+        "groups_in_library": result.groups_in_library,
+        "groups_outside_library": result.groups_outside_library,
+        "library_coverage": result.library_coverage,
     }
 
 
@@ -145,11 +187,15 @@ def predict_ph_stability_all_phases(smiles: str) -> dict:
 
     An IDEAL ADC linker: stable at 7.4, unstable at 5.0-5.5.
 
+    Each phase returns: is_stable, labile_groups_found, recommendation,
+    plus all_detected_groups, groups_outside_library, library_coverage.
+    Check library_coverage to assess prediction reliability.
+
     Args:
         smiles: A valid SMILES string
 
     Returns:
-        dict mapping each phase to stability results
+        dict mapping each phase to stability results with coverage info
     """
     try:
         results = _sim.predict_physiological_phases(smiles)
@@ -162,6 +208,10 @@ def predict_ph_stability_all_phases(smiles: str) -> dict:
             "is_stable": r.is_stable,
             "labile_groups_found": r.labile_groups_found,
             "recommendation": r.recommendation,
+            "all_detected_groups": r.all_detected_groups,
+            "groups_in_library": r.groups_in_library,
+            "groups_outside_library": r.groups_outside_library,
+            "library_coverage": r.library_coverage,
         }
         for phase, r in results.items()
     }
@@ -200,6 +250,7 @@ def design_linker(
     max_sas: float = 7.0,
     require_blood_stable: bool = True,
     max_results: int = 3,
+    weights: dict | None = None,
 ) -> dict:
     """
     Design ADC linker candidates based on target requirements.
@@ -218,6 +269,9 @@ def design_linker(
         max_sas: Maximum synthetic difficulty (1-10, default 7.0)
         require_blood_stable: Require stability at pH 7.4 (default True)
         max_results: Max candidates to return (default 3)
+        weights: Optional custom scoring weights dict with keys
+                 blood_stability, lysosome_lability, drug_likeness, synthetic.
+                 Values normalized to sum=1.0. Default uses built-in weights.
 
     Returns:
         dict with ranked candidates, scores, strengths/weaknesses, and design summary
@@ -231,7 +285,58 @@ def design_linker(
         max_sas=max_sas,
         require_blood_stable=require_blood_stable,
         max_results=max_results,
+        weights=weights,
     )
+
+
+@tool
+def search_literature(query: str, max_results: int = 5) -> dict:
+    """
+    Search scientific literature (PubMed/Europe PMC) for ADC-related papers.
+
+    Returns REAL papers with verified titles, authors, journals, DOIs, and abstracts.
+    Use this to:
+    - Verify chemical/biological claims against published research
+    - Find evidence for linker stability, cleavage mechanisms, payload compatibility
+    - Get up-to-date references on ADC design patterns
+    - Ground your recommendations in peer-reviewed literature
+
+    Tips for best results:
+    - Use English keywords (PubMed/Europe PMC index English literature)
+    - Include specific terms: "carbamate linker", "pH 5.5 cleavage", "camptothecin ADC"
+    - Add "review" for comprehensive overview papers
+
+    Args:
+        query: Search query in English (e.g., "carbamate linker pH stability blood ADC")
+        max_results: Max papers to return (default 5, max 10)
+
+    Returns:
+        dict with 'papers' list (each with title, authors, year, journal, doi, abstract, url)
+        and 'total_found' count. Papers include clickable DOI links.
+    """
+    try:
+        papers = _literature.search(query, max_results=min(max_results, 10))
+
+        return {
+            "query": query,
+            "total_found": len(papers),
+            "papers": [
+                {
+                    "title": p.title,
+                    "authors": p.authors,
+                    "year": p.year,
+                    "journal": p.journal,
+                    "doi": p.doi,
+                    "url": p.url,
+                    "abstract": p.abstract[:300] if p.abstract else "",
+                    "citation_count": p.citation_count,
+                    "citation": p.format_citation("brief"),
+                }
+                for p in papers
+            ],
+        }
+    except Exception as e:
+        return {"error": str(e), "query": query, "papers": []}
 
 
 # ─── 工具列表 ───
@@ -241,8 +346,10 @@ ALL_TOOLS = [
     validate_smiles,
     calculate_properties,
     check_lipinski,
+    check_toxicity,
     predict_ph_stability,
     predict_ph_stability_all_phases,
     search_linker_scaffolds,
     design_linker,
+    search_literature,
 ]

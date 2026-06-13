@@ -12,13 +12,12 @@ import pytest
 from pydantic import ValidationError
 
 from adc_linker_agent.domain.molecule import (
-    Molecule,
-    Linker,
-    Payload,
     ADCLinker,
     CleavageMechanism,
+    Linker,
+    Molecule,
+    Payload,
 )
-
 
 # ─── Molecule 基础类测试 ───
 

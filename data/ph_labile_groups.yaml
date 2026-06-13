@@ -1,0 +1,217 @@
+# ADC 连接子裂解规则库
+#
+# 覆盖三种裂解机制：
+#   - pH_sensitive:    酸催化水解（如腙键、原酸酯）
+#   - enzymatic:       酶催化裂解（如 Cathepsin B、β-glucuronidase）
+#   - redox:           氧化还原裂解（如二硫键的 GSH 还原、偶氮的还原酶）
+#
+# 所有机制统一用 pH 阈值编码：
+#   - labile_below: 低于此 pH 时裂解触发
+#   - stable_above: 高于此 pH 时保持稳定
+#   （对非 pH 驱动机制，用 pH 作为生理区室的代理变量）
+#
+# 字段说明:
+#   name:               官能团名称
+#   smarts:             SMARTS 模式（子结构匹配规则）
+#   pka_typical:        典型 pKa 值（非 pH 驱动时为 0.0）
+#   labile_below:       低于此 pH 开始裂解
+#   stable_above:       高于此 pH 保持稳定
+#   mechanism_type:     机制类型（pH_sensitive/enzymatic/redox）
+#   enzyme_name:        酶名称（仅 enzymatic）
+#   trigger_description:人类可读的触发描述
+#   mechanism:          裂解机制（化学/生物学原理描述）
+#
+# 引用:
+#   - ADC linker review: Bargh et al., Chem. Soc. Rev. 2019
+#   - Cathepsin B: Dubowchik et al., Bioconjugate Chem. 2002
+#   - Disulfide ADC: Mylotarg® (Gemtuzumab ozogamicin)
+#   - Glucuronide ADC: Jeffrey et al., J. Med. Chem. 2006
+
+groups:
+  # ─── pH 敏感机制（酸催化水解） ───
+
+  - name: hydrazone
+    smarts: "[CX3](=[OX1])[NX2][NX3]"
+    pka_typical: 5.0
+    labile_below: 6.0
+    stable_above: 6.5
+    mechanism_type: pH_sensitive
+    trigger_description: "酸催化水解 (腙键 C=N)"
+    mechanism: >
+      酸催化水解（H⁺为催化剂，H₂O 为反应物）：
+      R₂C=N-NH-CO-R' + H₂O → R₂C=O + H₂N-NH-CO-R'。
+      H⁺质子化 C=N 使碳更具亲电性→水亲核进攻→H⁺再生。
+
+  - name: acetal
+    smarts: "[OX2][CX4H1]([OX2])[CX4]"
+    pka_typical: 4.5
+    labile_below: 5.5
+    stable_above: 6.0
+    mechanism_type: pH_sensitive
+    trigger_description: "酸催化水解 (缩醛)"
+    mechanism: >
+      酸催化水解（H⁺为催化剂，H₂O 为反应物）：
+      R₂C(OR')₂ + H₂O → R₂C=O + 2 HO-R'。
+      H⁺质子化一个烷氧基→水亲核进攻断裂第一个醚键→
+      半缩醛中间体→第二个醚键断裂→H⁺再生。
+
+  - name: ketal
+    smarts: "[OX2][CX4]([OX2])([CX4])[CX4]"
+    pka_typical: 4.5
+    labile_below: 5.5
+    stable_above: 6.0
+    mechanism_type: pH_sensitive
+    trigger_description: "酸催化水解 (缩酮)"
+    mechanism: >
+      酸催化水解（H⁺为催化剂，H₂O 为反应物）：
+      R₂C(OR')₂ + H₂O → R₂C=O + 2 HO-R'。
+      与缩醛机理相同，但起始原料为酮而非醛。
+
+  - name: carboxylic_ester
+    smarts: "[CX3](=[OX1])[OX2][CX4]"
+    pka_typical: 7.0
+    labile_below: 5.0
+    stable_above: 7.0
+    mechanism_type: pH_sensitive
+    trigger_description: "酸催化水解 (羧酸酯)"
+    mechanism: >
+      酸催化水解（H⁺为催化剂，不被消耗）：
+      R-COOR' + H₂O → R-COOH + HO-R'。
+      H⁺先质子化羰基氧使碳更具亲电性，水分子亲核进攻后 H⁺再生。
+
+  - name: carbamate
+    smarts: "[NX3][CX3](=[OX1])[OX2]"
+    pka_typical: 6.5
+    labile_below: 5.5
+    stable_above: 7.0
+    mechanism_type: pH_sensitive
+    trigger_description: "酸催化分解 (氨基甲酸酯 → CO₂↑ + 胺)"
+    mechanism: >
+      酸催化分解（H⁺为催化剂，不被消耗；H₂O 为实际反应物）：
+      R-O-CO-NHR' + H₂O → R-OH + CO₂↑ + H₂N-R'。
+      分三步：(1)H⁺质子化羰基氧→(2)H₂O 亲核进攻、C-O 断裂释放醇→
+      (3)氨基甲酸中间体自发脱羧释放 CO₂+胺，H⁺再生。
+      PABC 自毁连接子的核心机制。
+
+  - name: imine
+    smarts: "[CX3](=[NX2])[CX4]"
+    pka_typical: 5.5
+    labile_below: 6.0
+    stable_above: 7.0
+    mechanism_type: pH_sensitive
+    trigger_description: "酸催化水解 (席夫碱 C=N)"
+    mechanism: >
+      酸催化水解（H⁺为催化剂，H₂O 为反应物）：
+      R₂C=N-R' + H₂O → R₂C=O + H₂N-R'。
+      H⁺质子化亚胺氮→水亲核进攻→C=N 断裂→H⁺再生（席夫碱水解）。
+
+  - name: silyl_ether
+    smarts: "[SiX4][OX2][CX4]"
+    pka_typical: 4.0
+    labile_below: 5.0
+    stable_above: 6.0
+    mechanism_type: pH_sensitive
+    trigger_description: "酸催化裂解 (Si-O 键)"
+    mechanism: >
+      酸催化裂解（H⁺为催化剂，H₂O 为反应物）：
+      R₃Si-O-R' + H₂O → R₃Si-OH + HO-R'。
+      H⁺促进 Si-O 键断裂（在 ADC 中较少使用）。
+
+  # ─── 酶催化机制 ───
+
+  - name: val_dipeptide
+    smarts: "[CX4H1]([CH3])([CH3])[CX4H1][CX3](=[OX1])[NX3]"
+    pka_typical: 0.0
+    labile_below: 5.5
+    stable_above: 7.0
+    mechanism_type: enzymatic
+    enzyme_name: "Cathepsin B"
+    trigger_description: "Cathepsin B 酶切 (Val-Cit/Val-Ala 二肽)"
+    mechanism: >
+      酶催化裂解：Cathepsin B（半胱氨酸蛋白酶）识别 Val-Cit 或
+      Val-Ala 二肽序列，在溶酶体酸性环境（pH 4.5-5.5）中切割酰胺键。
+      裂解后触发 PABC 自毁间隔臂 1,6-消除，释放游离药物。
+      这是 ADC 中最成熟、临床应用最广泛的连接子类型。
+      代表药物：Adcetris®（brentuximab vedotin）、Polivy®（polatuzumab vedotin）。
+
+  - name: glucuronide
+    smarts: "[OX2]([CX4H1][CX4H1]([OX2H1])[CX4H1]([OX2H1])[CX4H1]([OX2H1])[CX4H1]([CX3](=[OX1])[OX2H1])[OX2])[cX3]"
+    pka_typical: 0.0
+    labile_below: 5.5
+    stable_above: 7.0
+    mechanism_type: enzymatic
+    enzyme_name: "β-glucuronidase"
+    trigger_description: "β-glucuronidase 酶切 (葡萄糖苷酸)"
+    mechanism: >
+      酶催化裂解：β-glucuronidase 催化葡萄糖苷酸键水解，
+      释放醇/酚类药物。该酶在溶酶体和肿瘤坏死区域高表达，
+      但在血液中活性低，使葡萄糖苷酸连接子具有较好的肿瘤选择性。
+      亲水性糖基还改善了 ADC 的药代动力学性质。
+
+  - name: beta_lactam
+    smarts: "[CX3]1(=[OX1])[NX3][CX4][CX4]1"
+    pka_typical: 4.0
+    labile_below: 4.5
+    stable_above: 6.5
+    mechanism_type: enzymatic
+    enzyme_name: "β-lactamase"
+    trigger_description: "β-lactamase 酶切 (β-内酰胺开环)"
+    mechanism: >
+      酶催化开环：β-内酰胺四元环具有高环张力（~26 kcal/mol），
+      对亲核试剂（水、酶活性位点丝氨酸）高度活泼。
+      β-lactamase 催化水解开环生成 β-氨基酸衍生物。
+      在 ADC 中作为酶触发释放元件使用。
+
+  # ─── 氧化还原机制 ───
+
+  - name: disulfide
+    smarts: "[#6][SX2][SX2][#6]"
+    pka_typical: 0.0
+    labile_below: 6.5
+    stable_above: 7.0
+    mechanism_type: redox
+    trigger_description: "谷胱甘肽 (GSH) 还原裂解"
+    mechanism: >
+      还原裂解：R-S-S-R' + 2 GSH → R-SH + HS-R' + GSSG。
+      肿瘤细胞内谷胱甘肽浓度（~1-10 mM）远高于血液（~0.5-5 μM），
+      因此二硫键连接子在血液循环中稳定，进入肿瘤细胞后被还原裂解。
+      代表药物：Mylotarg®（Gemtuzumab ozogamicin）。
+
+  - name: azo
+    smarts: "[NX2]=[NX2]"
+    pka_typical: 0.0
+    labile_below: 6.5
+    stable_above: 7.0
+    mechanism_type: redox
+    trigger_description: "偶氮还原酶裂解 (缺氧条件)"
+    mechanism: >
+      偶氮键（R-N=N-R'）在缺氧条件下被偶氮还原酶还原为两分子胺。
+      实体肿瘤常存在缺氧区域，偶氮还原酶活性升高，
+      使偶氮连接子具有一定的肿瘤选择性。
+
+  # ─── 酸敏感机制（扩展） ───
+
+  - name: orthoester
+    smarts: "[CX4]([OX2])([OX2])([OX2])"
+    pka_typical: 3.5
+    labile_below: 5.0
+    stable_above: 6.5
+    mechanism_type: pH_sensitive
+    trigger_description: "酸催化水解 (超快 t₁/₂ < 1 min @ pH 5)"
+    mechanism: >
+      原酸酯（R-C(OR')₃）对酸极度敏感，在 pH 5 以下快速水解。
+      水解机制：H⁺质子化一个烷氧基→水亲核进攻→醇离去→
+      重复两次→最终生成酯和水。原酸酯连接子能在溶酶体中快速裂解，
+      释放速率比腙键和酯键更快，可通过取代基调节水解速率。
+
+  - name: phosphoramidate
+    smarts: "[PX4](=[OX1])([OX2])([OX2])[NX3]"
+    pka_typical: 3.0
+    labile_below: 4.5
+    stable_above: 6.5
+    mechanism_type: pH_sensitive
+    trigger_description: "酸催化水解 (P-N 键断裂)"
+    mechanism: >
+      磷酰胺酯（R-O-P(=O)(-OH)-NHR'）在酸性条件下 P-N 键断裂。
+      H⁺质子化氮原子使 P-N 键削弱→水或邻近羟基亲核进攻→
+      释放胺和磷酸酯。环磷酰胺类前药利用类似机制。

@@ -65,6 +65,8 @@ class _StructuredOutputWrapper:
 def create_model(
     temperature: float = 0.2,
     max_tokens: int = 4096,
+    timeout: float = 120.0,
+    max_retries: int = 2,
     tools: list | None = None,
     output_schema: type | None = None,
 ):
@@ -95,6 +97,8 @@ def create_model(
             base_url=config.deepseek_base_url,
             temperature=temperature,
             max_tokens=max_tokens,
+            timeout=timeout,
+            max_retries=max_retries,
         )
     else:
         from langchain_anthropic import ChatAnthropic
@@ -104,6 +108,8 @@ def create_model(
             api_key=config.anthropic_api_key,
             temperature=temperature,
             max_tokens=max_tokens,
+            timeout=timeout,
+            max_retries=max_retries,
         )
 
     # 绑定工具

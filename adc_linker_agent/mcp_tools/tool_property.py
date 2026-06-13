@@ -10,7 +10,10 @@
     - 高内聚：两个工具共享同一个计算器实例
 """
 
-from adc_linker_agent.domain.properties import MolPropertyCalculator
+from adc_linker_agent.domain.properties import (
+    MolPropertyCalculator,
+    check_toxicity_alerts,
+)
 
 _calc = MolPropertyCalculator()
 
@@ -63,3 +66,24 @@ def check_lipinski(smiles: str) -> dict:
         violation_details (list of strings), is_oral_drug_like (bool)
     """
     return _calc.check_lipinski(smiles)
+
+
+def check_toxicity(smiles: str) -> dict:
+    """
+    Check for PAINS and Brenk toxicity alerts in a molecule.
+
+    PAINS (Pan-Assay Interference Compounds) flags compounds that frequently
+    show false-positive bioactivity — not developable as drugs. Brenk alerts
+    flag potentially toxic, unstable, or metabolically reactive substructures
+    (alkylating agents, Michael acceptors, etc.).
+
+    CRITICAL: Call this for EVERY linker candidate before recommending it.
+
+    Args:
+        smiles: A valid SMILES string
+
+    Returns:
+        dict with has_alerts (bool), alerts (list of {description, category}),
+        pains_count, brenk_count, summary
+    """
+    return check_toxicity_alerts(smiles)

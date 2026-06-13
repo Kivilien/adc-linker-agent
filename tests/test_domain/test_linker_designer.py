@@ -3,12 +3,12 @@
 """
 
 import pytest
+from pydantic import ValidationError
 
 from adc_linker_agent.domain.linker_designer import (
+    DesignResult,
     LinkerDesigner,
     LinkerDesignRequest,
-    LinkerCandidate,
-    DesignResult,
     quick_design,
 )
 
@@ -35,15 +35,15 @@ class TestLinkerDesignRequest:
         assert req.max_results == 3
 
     def test_invalid_target_ph_rejected(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             LinkerDesignRequest(target_ph=15)
 
     def test_invalid_qed_rejected(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             LinkerDesignRequest(min_qed=1.5)
 
     def test_invalid_max_results_rejected(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             LinkerDesignRequest(max_results=0)
 
 
@@ -214,14 +214,57 @@ class TestQuickDesign:
 
 
 class TestScoringWeights:
-    """测试评分权重总和"""
+    """测试评分权重总和 + 自定义权重"""
 
-    def test_weights_sum_to_one(self):
+    def test_default_weights_sum_to_one(self):
+        """默认权重总和应为 1.0"""
+        total = sum(LinkerDesigner.DEFAULT_WEIGHTS.values())
+        assert abs(total - 1.0) < 0.01, f"Default weights sum to {total}, not 1.0"
+
+    def test_instance_weights_match_default(self):
+        """默认构造的实例权重应匹配 DEFAULT_WEIGHTS"""
         designer = LinkerDesigner()
-        total = (
-            designer.WEIGHT_BLOOD_STABILITY
-            + designer.WEIGHT_LYSOSOME_LABILITY
-            + designer.WEIGHT_DRUG_LIKENESS
-            + designer.WEIGHT_SYNTHETIC
-        )
-        assert abs(total - 1.0) < 0.01, f"Weights sum to {total}, not 1.0"
+        for key in LinkerDesigner.DEFAULT_WEIGHTS:
+            assert designer.weights[key] == LinkerDesigner.DEFAULT_WEIGHTS[key]
+
+    def test_custom_weights_are_normalized(self):
+        """自定义权重应被归一化到总和 1.0"""
+        designer = LinkerDesigner(weights={
+            "blood_stability": 0.5,
+            "lysosome_lability": 0.5,
+            "drug_likeness": 0.0,
+            "synthetic": 0.0,
+        })
+        total = sum(designer.weights.values())
+        assert abs(total - 1.0) < 0.01, f"Custom weights sum to {total}, not 1.0"
+
+    def test_custom_weights_affect_scoring(self):
+        """使用自定义权重后设计结果应不同"""
+        default_designer = LinkerDesigner()
+        custom_designer = LinkerDesigner(weights={
+            "blood_stability": 0.0,
+            "lysosome_lability": 0.0,
+            "drug_likeness": 1.0,
+            "synthetic": 0.0,
+        })
+
+        request = LinkerDesignRequest(max_results=5)
+        default_result = default_designer.design(request)
+        custom_result = custom_designer.design(request)
+
+        # 两种权重下评分应不同（至少有一个候选的排名不同）
+        if default_result.candidates and custom_result.candidates:
+            default_names = [c.name for c in default_result.candidates]
+            custom_names = [c.name for c in custom_result.candidates]
+            # 药物相似性优先 vs 血液稳定性优先 → 排序不同
+            assert default_names != custom_names, (
+                "Custom weights should produce different ranking"
+            )
+
+    def test_partial_weights_fill_defaults(self):
+        """只提供部分权重时缺失键用默认值补齐"""
+        designer = LinkerDesigner(weights={"blood_stability": 0.5})
+        # blood_stability 被覆盖，其余保持默认
+        assert designer.weights["lysosome_lability"] > 0
+        assert designer.weights["drug_likeness"] > 0
+        assert designer.weights["synthetic"] > 0

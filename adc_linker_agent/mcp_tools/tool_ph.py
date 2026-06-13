@@ -52,6 +52,10 @@ def predict_ph_stability(smiles: str, ph: float = 7.4) -> dict:
         "stable_groups_found": result.stable_groups_found,
         "recommendation": result.recommendation,
         "context": result.context,
+        "all_detected_groups": result.all_detected_groups,
+        "groups_in_library": result.groups_in_library,
+        "groups_outside_library": result.groups_outside_library,
+        "library_coverage": result.library_coverage,
     }
 
 
@@ -85,6 +89,10 @@ def predict_ph_stability_all_phases(smiles: str) -> dict:
             "is_stable": r.is_stable,
             "labile_groups_found": r.labile_groups_found,
             "recommendation": r.recommendation,
+            "all_detected_groups": r.all_detected_groups,
+            "groups_in_library": r.groups_in_library,
+            "groups_outside_library": r.groups_outside_library,
+            "library_coverage": r.library_coverage,
         }
         for phase, r in results.items()
     }

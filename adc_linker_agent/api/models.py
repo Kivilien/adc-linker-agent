@@ -90,15 +90,27 @@ class AgentQueryResponse(BaseModel):
     elapsed_ms: float = Field(
         default=0.0, description="处理耗时（毫秒）"
     )
+    disclaimer: str = Field(
+        default="",
+        description="医学免责声明",
+    )
+    literature_data: dict | None = Field(
+        default=None,
+        description="文献搜索结果（从 shared_context 提取，包含 papers/queries/total_found）",
+    )
+    design_report: dict | None = Field(
+        default=None,
+        description="连接子设计报告（从 shared_context 提取）",
+    )
 
 
 class HealthResponse(BaseModel):
     """健康检查响应"""
 
     status: str = Field(default="ok", description="服务状态")
-    version: str = Field(default="0.1.0", description="API 版本")
+    version: str = Field(default="1.1.0", description="API 版本")
     agent_mode: str = Field(default="multi", description="当前 Agent 模式")
-    tools_available: int = Field(default=7, description="可用工具数")
+    tools_available: int = Field(default=9, description="可用工具数")
 
 
 class ToolInfo(BaseModel):

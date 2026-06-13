@@ -1,25 +1,26 @@
 [project]
 name = "adc-linker-agent"
-version = "0.1.0"
+version = "1.1.0"
 description = "ADC Linker Intelligent Design AI Agent - Multi-agent system for antibody-drug conjugate linker design"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 
 dependencies = [
-    # Core (Week 1-5)
+    # Core (Week 1-5) — 上界锁定防止主版本破坏性变更
     "python-dotenv>=1.0.0",
-    "pydantic>=2.0.0",
-    "mcp>=1.0.0",
-    "langgraph>=0.3.0",
-    "langchain-core>=0.3.0",
-    "langchain-anthropic>=0.3.0",
-    "langchain-openai>=1.0.0",
-    "langchain-mcp-adapters>=0.2.0",
-    "anthropic>=0.50.0",
-    "rdkit-pypi>=2022.9.0",
-    "numpy<2.0.0",  # rdkit-pypi 2022 与 NumPy 2.x 不兼容
-    "httpx>=0.28.0",
-    "tabulate>=0.9.0",
+    "pydantic>=2.0.0,<3.0.0",
+    "mcp>=1.0.0,<2.0.0",
+    "langgraph>=0.3.0,<0.5.0",
+    "langchain-core>=0.3.0,<0.5.0",
+    "langchain-anthropic>=0.3.0,<1.0.0",
+    "langchain-openai>=1.0.0,<2.0.0",
+    "langchain-mcp-adapters>=0.2.0,<1.0.0",
+    "anthropic>=0.50.0,<1.0.0",
+    "rdkit-pypi>=2022.9.0,<2025.0.0",
+    "numpy<2.0.0",  # rdkit-pypi 2022.9 与 NumPy 2.x 不兼容
+    "httpx>=0.28.0,<1.0.0",
+    "tabulate>=0.9.0,<1.0.0",
+    "PyYAML>=6.0,<7.0.0",
 ]
 
 [project.optional-dependencies]
@@ -29,8 +30,6 @@ dev = [
     "pytest-cov>=6.0.0",
     "ruff>=0.8.0",
     "mypy>=1.10.0",
-    "ipython>=8.0.0",
-    "jupyter>=1.1.0",
 ]
 web = [
     "fastapi>=0.100.0",

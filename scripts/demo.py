@@ -85,7 +85,11 @@ def demo_2_ph_stability():
     results = sim.predict_physiological_phases(hydrazone)
     for phase, result in results.items():
         status = "🟢 稳定" if result.is_stable else "🔴 不稳定"
-        labile = f" | 敏感基团: {', '.join(result.labile_groups_found)}" if result.labile_groups_found else ""
+        labile = (
+            f" | 敏感基团: {', '.join(result.labile_groups_found)}"
+            if result.labile_groups_found
+            else ""
+        )
         print(f"  {phase:25s} pH {result.target_ph} → {status}{labile}")
 
     # 判断是否是理想连接子
@@ -103,7 +107,7 @@ def demo_2_ph_stability():
     subsection("苯（对照：无 pH 敏感基团）")
     result = sim.predict("c1ccccc1", ph=7.4)
     print(f"  pH 7.4: {'🟢 稳定' if result.is_stable else '🔴 不稳定'}")
-    print(f"  检测到的敏感基团: 无")
+    print("  检测到的敏感基团: 无")
 
 
 def demo_3_scaffold_search():

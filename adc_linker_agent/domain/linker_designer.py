@@ -125,6 +125,11 @@ class LinkerCandidate:
     weaknesses: list[str] = field(default_factory=list)
     recommendation: str = ""
 
+    # 毒性/安全性
+    toxicity_alerts: list[dict] = field(default_factory=list)
+    has_toxicity_alerts: bool = False
+    risk_flags: list[str] = field(default_factory=list)  # 人类可读的风险标签
+
 
 @dataclass
 class DesignResult:
@@ -135,6 +140,7 @@ class DesignResult:
     total_evaluated: int
     total_filtered: int
     design_summary: str = ""
+    failed_scaffolds: list[dict] = field(default_factory=list)
 
     @property
     def top_candidate(self) -> LinkerCandidate | None:
@@ -154,19 +160,38 @@ class LinkerDesigner:
 
         for c in result.candidates:
             print(f"{c.name}: score={c.overall_score:.2f}")
+
+    自定义权重:
+        designer = LinkerDesigner(weights={
+            "blood_stability": 0.40,
+            "lysosome_lability": 0.25,
+            "drug_likeness": 0.20,
+            "synthetic": 0.15,
+        })
     """
 
-    # 评分权重
-    WEIGHT_BLOOD_STABILITY = 0.35     # 血液稳定性最重要（安全第一）
-    WEIGHT_LYSOSOME_LABILITY = 0.30   # 溶酶体裂解（有效性）
-    WEIGHT_DRUG_LIKENESS = 0.20       # 药物相似性
-    WEIGHT_SYNTHETIC = 0.15           # 合成可行性
+    # 默认评分权重（类级常量，实例可通过 __init__ 覆盖）
+    DEFAULT_WEIGHTS = {
+        "blood_stability": 0.35,   # 血液稳定性最重要（安全第一）
+        "lysosome_lability": 0.30,  # 溶酶体裂解（有效性）
+        "drug_likeness": 0.20,     # 药物相似性
+        "synthetic": 0.15,         # 合成可行性
+    }
 
-    def __init__(self, csv_path: str | None = None):
+    # 向后兼容：类级别名（Week 2.3 起推荐使用 DEFAULT_WEIGHTS）
+    WEIGHT_BLOOD_STABILITY = DEFAULT_WEIGHTS["blood_stability"]
+    WEIGHT_LYSOSOME_LABILITY = DEFAULT_WEIGHTS["lysosome_lability"]
+    WEIGHT_DRUG_LIKENESS = DEFAULT_WEIGHTS["drug_likeness"]
+    WEIGHT_SYNTHETIC = DEFAULT_WEIGHTS["synthetic"]
+
+    def __init__(self, csv_path: str | None = None, weights: dict[str, float] | None = None):
         """
         Args:
             csv_path: 连接子骨架 CSV 文件路径。
                       默认: <project_root>/data/linker_scaffolds.csv
+            weights: 自定义评分权重 dict。键: blood_stability, lysosome_lability,
+                     drug_likeness, synthetic。值: 0-1 的浮点数（会被归一化）。
+                     默认使用 DEFAULT_WEIGHTS。
         """
         if csv_path is None:
             from adc_linker_agent.utils.config import get_config
@@ -177,6 +202,18 @@ class LinkerDesigner:
         self._property_calc = MolPropertyCalculator()
         self._ph_sim = PhSimulator()
         self._scaffolds: list[dict] = self._load_scaffolds()
+
+        # 评分权重：验证 + 归一化
+        if weights is not None:
+            self.weights = self._normalize_weights(weights)
+        else:
+            self.weights = dict(self.DEFAULT_WEIGHTS)
+
+        # 同步类级别名（向后兼容旧代码直接访问类属性）
+        self.WEIGHT_BLOOD_STABILITY = self.weights["blood_stability"]
+        self.WEIGHT_LYSOSOME_LABILITY = self.weights["lysosome_lability"]
+        self.WEIGHT_DRUG_LIKENESS = self.weights["drug_likeness"]
+        self.WEIGHT_SYNTHETIC = self.weights["synthetic"]
 
     def _load_scaffolds(self) -> list[dict]:
         """从 CSV 加载连接子骨架数据库。"""
@@ -223,12 +260,17 @@ class LinkerDesigner:
 
         # ─── 2. 评估每个候选 ───
         results: list[LinkerCandidate] = []
+        failed: list[dict] = []
         for scaffold in candidates:
             try:
                 cand = self._evaluate_candidate(scaffold, request)
                 results.append(cand)
-            except Exception:
-                continue  # 跳过计算失败的候选
+            except Exception as exc:
+                failed.append({
+                    "name": scaffold.get("name", "Unknown"),
+                    "smiles": scaffold.get("smiles", ""),
+                    "error": str(exc),
+                })
 
         # ─── 3. 多维度打分 ───
         for cand in results:
@@ -258,6 +300,7 @@ class LinkerDesigner:
             total_evaluated=total_evaluated,
             total_filtered=total_filtered,
             design_summary=summary,
+            failed_scaffolds=failed,
         )
 
     # ─── 筛选 ───
@@ -284,9 +327,15 @@ class LinkerDesigner:
 
             matches.append(scaffold)
 
-        # 如果没有精确匹配，放宽机制筛选
+        # 如果没有精确匹配，放宽机制筛选（仍保留 pH 匹配容差）
         if not matches and request.preferred_mechanism:
             for scaffold in self._scaffolds:
+                # 跳过机制检查，但保留 pH 匹配
+                trigger_ph = scaffold.get("trigger_ph")
+                if trigger_ph is not None and request.target_ph:
+                    ph_diff = abs(trigger_ph - request.target_ph)
+                    if ph_diff > 1.5:
+                        continue
                 matches.append(scaffold)
 
         return matches
@@ -365,8 +414,33 @@ class LinkerDesigner:
         elif mechanism != "non_cleavable":
             weaknesses.append("溶酶体中裂解不充分")
 
-        # 推荐
-        if blood_ok and lysosome_ok:
+        # ─── 毒性检测 ───
+        from adc_linker_agent.domain.properties import check_toxicity_alerts
+
+        toxicity_result = check_toxicity_alerts(smiles)
+        tox_alerts = toxicity_result.get("alerts", [])
+        has_tox = toxicity_result.get("has_alerts", False)
+        risk_flags: list[str] = []
+
+        if has_tox:
+            pains_count = toxicity_result.get("pains_count", 0)
+            brenk_count = toxicity_result.get("brenk_count", 0)
+            if pains_count > 0:
+                weaknesses.append(f"🚨 {pains_count} 个 PAINS 假阳性警报（不可开发）")
+                risk_flags.append("PAINS 假阳性警报")
+            if brenk_count > 0:
+                weaknesses.append(f"🚨 {brenk_count} 个 Brenk 毒性/不稳定警报")
+                risk_flags.append("Brenk 毒性警报")
+            for alert in tox_alerts[:5]:  # 最多展示前 5 个
+                risk_flags.append(f"{alert['category']}: {alert['description']}")
+
+        # 推荐（毒性警报覆盖一切）
+        if has_tox:
+            recommendation = (
+                f"🚨 不推荐：{name} 含有 {len(tox_alerts)} 个毒性/假阳性警报。"
+                f"即使性质分数高也不建议开发。"
+            )
+        elif blood_ok and lysosome_ok:
             recommendation = (
                 f"✅ 推荐：{name} 满足理想 ADC 连接子条件"
                 f"（血液稳定 + 溶酶体裂解）"
@@ -402,7 +476,28 @@ class LinkerDesigner:
             strengths=strengths,
             weaknesses=weaknesses,
             recommendation=recommendation,
+            toxicity_alerts=tox_alerts,
+            has_toxicity_alerts=has_tox,
+            risk_flags=risk_flags,
         )
+
+    # ─── 权重归一化 ───
+
+    @staticmethod
+    def _normalize_weights(weights: dict[str, float]) -> dict[str, float]:
+        """
+        归一化权重，确保总和为 1.0。
+
+        如果用户只提供部分键，缺失的键用 DEFAULT_WEIGHTS 补齐。
+        """
+        full = dict(LinkerDesigner.DEFAULT_WEIGHTS)
+        full.update(weights)
+
+        total = sum(full.values())
+        if abs(total - 1.0) > 0.001:
+            full = {k: v / total for k, v in full.items()}
+
+        return full
 
     # ─── 打分 ───
 
@@ -413,6 +508,7 @@ class LinkerDesigner:
         多维度综合评分。
 
         每项归一化到 [0, 1]，加权平均得总分。
+        使用实例级 self.weights（可通过 __init__ 自定义）。
         """
         # 1. 血液稳定性 (0 或 1)
         cand.score_blood_stability = 1.0 if cand.blood_stable else 0.0
@@ -429,13 +525,19 @@ class LinkerDesigner:
         # 4. 合成可行性 (SAS: 1=easy, 10=hard → 反向归一化)
         cand.score_synthetic = max(0.0, 1.0 - (cand.sas - 1) / 9)
 
-        # 加权总分
-        cand.overall_score = (
-            self.WEIGHT_BLOOD_STABILITY * cand.score_blood_stability
-            + self.WEIGHT_LYSOSOME_LABILITY * cand.score_lysosome_lability
-            + self.WEIGHT_DRUG_LIKENESS * cand.score_drug_likeness
-            + self.WEIGHT_SYNTHETIC * cand.score_synthetic
+        # 加权总分（使用实例级 weights dict）
+        raw_score = (
+            self.weights["blood_stability"] * cand.score_blood_stability
+            + self.weights["lysosome_lability"] * cand.score_lysosome_lability
+            + self.weights["drug_likeness"] * cand.score_drug_likeness
+            + self.weights["synthetic"] * cand.score_synthetic
         )
+
+        # 毒性惩罚：有 PAINS/Brenk 警报则总分打 6 折（最低分不降到负数以下）
+        if cand.has_toxicity_alerts:
+            cand.overall_score = raw_score * 0.4
+        else:
+            cand.overall_score = raw_score
 
     # ─── 报告生成 ───
 

@@ -59,7 +59,7 @@ app = FastAPI(
     2. `GET /agent/tools` — 查看可用工具
     3. `GET /agent/health` — 健康检查
     """,
-    version="0.1.0",
+    version="1.1.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -78,8 +78,8 @@ app.add_middleware(
         "http://127.0.0.1:8502",
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
 
 # ─── 注册路由 ───

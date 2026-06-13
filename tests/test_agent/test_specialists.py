@@ -8,31 +8,36 @@
   4. 专长 Agent 工厂函数
 """
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 
 from adc_linker_agent.agent.specialists import (
-    PROPERTY_TOOLS,
-    PH_TOOLS,
-    LINKER_TOOLS,
-    ALL_TOOLS,
     _TOOL_MAP,
+    ALL_TOOLS,
+    LINKER_TOOLS,
+    LITERATURE_TOOLS,
+    PH_TOOLS,
+    PROPERTY_TOOLS,
     _execute_tool_calls,
     create_specialist_node,
-    property_agent,
-    ph_agent,
     linker_agent,
+    ph_agent,
+    property_agent,
 )
-from adc_linker_agent.agent.state import MultiAgentState
 
 
 class TestToolSetAssignment:
     """测试最小权限原则：每个 Agent 只有必需的 tools"""
 
-    def test_property_agent_has_3_tools(self):
-        """PropertyAgent 只有 3 个工具"""
-        assert len(PROPERTY_TOOLS) == 3
+    def test_property_agent_has_4_tools(self):
+        """PropertyAgent 有 4 个工具（含毒性检测）"""
+        assert len(PROPERTY_TOOLS) == 4
         tool_names = {t.name for t in PROPERTY_TOOLS}
-        assert tool_names == {"validate_smiles", "calculate_properties", "check_lipinski"}
+        assert tool_names == {
+            "validate_smiles",
+            "calculate_properties",
+            "check_lipinski",
+            "check_toxicity",
+        }
 
     def test_ph_agent_has_2_tools(self):
         """PHAgent 只有 2 个工具"""
@@ -40,10 +45,16 @@ class TestToolSetAssignment:
         tool_names = {t.name for t in PH_TOOLS}
         assert tool_names == {"predict_ph_stability", "predict_ph_stability_all_phases"}
 
-    def test_linker_agent_has_all_7_tools(self):
-        """LinkerDesignAgent 拥有全部 7 个工具"""
-        assert len(LINKER_TOOLS) == 7
+    def test_linker_agent_has_all_9_tools(self):
+        """LinkerDesignAgent 拥有全部 9 个工具（含毒性检测+文献搜索）"""
+        assert len(LINKER_TOOLS) == 9
         assert LINKER_TOOLS == ALL_TOOLS
+
+    def test_literature_agent_has_1_tool(self):
+        """LiteratureAgent 只有 1 个文献搜索工具"""
+        assert len(LITERATURE_TOOLS) == 1
+        tool_names = {t.name for t in LITERATURE_TOOLS}
+        assert tool_names == {"search_literature"}
 
     def test_property_agent_cannot_access_ph_tools(self):
         """PropertyAgent 不应该有 pH 工具"""
@@ -61,17 +72,19 @@ class TestToolSetAssignment:
 class TestToolMap:
     """测试工具名→函数映射"""
 
-    def test_all_7_tools_in_map(self):
-        """_TOOL_MAP 应该包含全部 7 个工具"""
-        assert len(_TOOL_MAP) == 7
+    def test_all_9_tools_in_map(self):
+        """_TOOL_MAP 应该包含全部 9 个工具（含毒性检测）"""
+        assert len(_TOOL_MAP) == 9
         expected = {
             "validate_smiles",
             "calculate_properties",
             "check_lipinski",
+            "check_toxicity",
             "predict_ph_stability",
             "predict_ph_stability_all_phases",
             "search_linker_scaffolds",
             "design_linker",
+            "search_literature",
         }
         assert set(_TOOL_MAP.keys()) == expected
 
@@ -97,10 +110,11 @@ class TestExecuteToolCalls:
             }],
         )
         results = _execute_tool_calls(ai_msg)
-        assert len(results) == 1
-        assert isinstance(results[0], ToolMessage)
-        assert "valid" in results[0].content
-        assert "true" in results[0].content.lower()
+        tool_messages, raw_results = results
+        assert len(tool_messages) == 1
+        assert isinstance(tool_messages[0], ToolMessage)
+        assert "valid" in tool_messages[0].content
+        assert "true" in tool_messages[0].content.lower()
 
     def test_multiple_tool_calls(self):
         """正确执行多个并发 tool_calls"""
@@ -120,12 +134,13 @@ class TestExecuteToolCalls:
             ],
         )
         results = _execute_tool_calls(ai_msg)
-        assert len(results) == 2
-        assert all(isinstance(r, ToolMessage) for r in results)
+        tool_messages, _raw = results
+        assert len(tool_messages) == 2
+        assert all(isinstance(r, ToolMessage) for r in tool_messages)
         # 第一条应该是 validate_smiles 结果
-        assert "C9H8O4" in results[0].content
+        assert "C9H8O4" in tool_messages[0].content
         # 第二条应该是 calculate_properties 结果
-        assert "logp" in results[1].content
+        assert "logp" in tool_messages[1].content
 
     def test_unknown_tool_name_returns_error(self):
         """未知工具名返回错误信息而不崩溃"""
@@ -137,15 +152,15 @@ class TestExecuteToolCalls:
                 "id": "call_bad",
             }],
         )
-        results = _execute_tool_calls(ai_msg)
-        assert len(results) == 1
-        assert "unknown" in results[0].content.lower()
+        tool_messages, _raw = _execute_tool_calls(ai_msg)
+        assert len(tool_messages) == 1
+        assert "unknown" in tool_messages[0].content.lower()
 
     def test_empty_tool_calls_returns_empty(self):
         """没有 tool_calls 时返回空列表"""
         ai_msg = AIMessage(content="No tools needed")
         results = _execute_tool_calls(ai_msg)
-        assert results == []
+        assert results == ([], {})
 
     def test_tool_call_with_invalid_args_returns_error(self):
         """工具参数无效时返回错误不崩溃"""
@@ -157,8 +172,8 @@ class TestExecuteToolCalls:
                 "id": "call_invalid",
             }],
         )
-        results = _execute_tool_calls(ai_msg)
-        assert len(results) == 1
+        tool_messages, _raw = _execute_tool_calls(ai_msg)
+        assert len(tool_messages) == 1
         # validate_smiles 对无效 SMILES 返回 valid: false，不抛异常
 
 
@@ -171,6 +186,8 @@ class TestCreateSpecialistNode:
             name="test_agent",
             system_prompt="You are a test agent.",
             tools=PROPERTY_TOOLS[:1],  # 只用 validate_smiles
+            context_key="test_data",
+            extract_fn=lambda raw: {"result": str(raw)},
         )
         assert callable(node)
 
@@ -180,6 +197,8 @@ class TestCreateSpecialistNode:
             name="test_specialist",
             system_prompt="Test prompt.",
             tools=PROPERTY_TOOLS[:1],
+            context_key="test_data",
+            extract_fn=lambda raw: {"result": str(raw)},
         )
         assert node.__name__ == "test_specialist"
 
