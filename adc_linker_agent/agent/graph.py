@@ -39,6 +39,7 @@ from adc_linker_agent.agent.synthesizer import (
     template_synthesize,
 )
 from adc_linker_agent.agent.tools import ALL_TOOLS
+from adc_linker_agent.utils.config import get_config
 
 # ═══════════════════════════════════════════════════════════════
 # Planner: Pydantic 结构化输出模型
@@ -155,7 +156,11 @@ def _create_supervisor_node() -> Any:
         max_tokens=1024,
         output_schema=PlanOutput,
     )
-    synthesizer_model = create_model(temperature=0.3, max_tokens=2048)
+    synthesizer_model = create_model(
+        temperature=0.3,
+        max_tokens=2048,
+        model_override=get_config().synthesis_model,
+    )
 
     def supervisor_node(state: AgentState) -> dict:
         """Supervisor 节点: 根据计划状态检测阶段并执行。"""

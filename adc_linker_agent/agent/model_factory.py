@@ -69,6 +69,7 @@ def create_model(
     max_retries: int = 2,
     tools: list | None = None,
     output_schema: type | None = None,
+    model_override: str | None = None,
 ):
     """
     创建 LLM 模型实例。返回的对象统一支持 .invoke(messages) 接口。
@@ -82,17 +83,19 @@ def create_model(
         max_tokens: 最大输出 token 数
         tools: 可选的工具列表
         output_schema: 可选的 Pydantic 模型（用于结构化输出）
+        model_override: 覆盖 config.llm_model 的模型名（例如 synthesis_model）
 
     Returns:
         ChatModel 或 compatible wrapper，统一 .invoke(messages) 接口
     """
     config = get_config()
+    model_name = model_override or config.llm_model
 
     if config.llm_provider == "deepseek":
         from langchain_openai import ChatOpenAI
 
         base_model = ChatOpenAI(
-            model=config.llm_model,
+            model=model_name,
             api_key=config.deepseek_api_key,
             base_url=config.deepseek_base_url,
             temperature=temperature,
@@ -104,7 +107,7 @@ def create_model(
         from langchain_anthropic import ChatAnthropic
 
         base_model = ChatAnthropic(
-            model=config.llm_model,
+            model=model_name,
             api_key=config.anthropic_api_key,
             temperature=temperature,
             max_tokens=max_tokens,

@@ -42,7 +42,10 @@ class AgentQueryRequest(BaseModel):
     )
     model_name: str = Field(
         default="claude-fable-5",
-        description="Anthropic 模型名称",
+        description=(
+            "模型名称（预留字段）。当前部署由环境变量 LLM_MODEL/SYNTHESIS_MODEL 控制，"
+            "此字段保留供将来多租户支持。"
+        ),
     )
 
 
