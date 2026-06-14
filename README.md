@@ -42,7 +42,7 @@ and the Multi-Agent system returns ranked candidates with full property analysis
 │  └──────┬───────┘  └────┬─────┘  └──────────┬───────────┘    │
 │         └────────────────┼──────────────────┘                │
 ├──────────────────────────┼───────────────────────────────────┤
-│                     MCP Server (8 tools)                      │
+│                     MCP Server (9 tools)                      │
 ├──────────────────────────┼───────────────────────────────────┤
 │                Domain Layer (RDKit)                           │
 │  MolPropertyCalculator · PhSimulator · LinkerDesigner        │
