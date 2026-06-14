@@ -26,12 +26,14 @@ from adc_linker_agent.agent.graph import get_agent
 from adc_linker_agent.agent.state import make_shared_context
 from adc_linker_agent.ui.components import (
     render_design_report,
+    render_feedback_row,
     render_literature_cards,
     render_message_content,
     render_sidebar,
     render_streaming_status,
     render_tool_call,
 )
+from adc_linker_agent.utils.audit import write_ui_audit
 from adc_linker_agent.utils.config import get_config
 from adc_linker_agent.utils.validators import MEDICAL_DISCLAIMER
 
@@ -185,6 +187,14 @@ for msg in st.session_state.messages:
                 render_literature_cards(lit)
             if content and content.strip():
                 render_message_content(content)
+            # 历史消息中只对最后一条助手消息显示反馈按钮
+            is_last = msg is st.session_state.messages[-1]
+            if is_last:
+                msg_idx = len([
+                    m for m in st.session_state.messages
+                    if m["role"] == "assistant"
+                ]) - 1
+                render_feedback_row(msg_idx)
         else:
             st.markdown(content)
 
@@ -287,6 +297,7 @@ if prompt := st.chat_input("输入你的 ADC 连接子相关查询..."):
                 "tool_calls": [],
             })
         else:
+            handler_start = time.perf_counter()
             try:
                 graph, graph_config = get_agent(
                     thread_id=st.session_state.thread_id,
@@ -376,6 +387,15 @@ if prompt := st.chat_input("输入你的 ADC 连接子相关查询..."):
                 )
                 st.caption(MEDICAL_DISCLAIMER)
 
+                # ─── 审计日志 ───
+                write_ui_audit(
+                    thread_id=st.session_state.thread_id,
+                    query=prompt,
+                    status="ok",
+                    elapsed_ms=elapsed,
+                    tool_calls=len(tool_calls_made),
+                )
+
                 # ─── 保存到历史 ───
                 st.session_state.messages.append({
                     "role": "assistant",
@@ -390,9 +410,24 @@ if prompt := st.chat_input("输入你的 ADC 连接子相关查询..."):
                     st.session_state.thread_id,
                 )
 
+                # ─── 反馈按钮 ───
+                assistant_count = len([
+                    m for m in st.session_state.messages
+                    if m["role"] == "assistant"
+                ])
+                render_feedback_row(assistant_count - 1)
+
             except Exception as e:
                 error_msg = str(e)
                 st.error(f"❌ Agent 调用失败: {error_msg}")
+
+                write_ui_audit(
+                    thread_id=st.session_state.thread_id,
+                    query=prompt,
+                    status="error",
+                    elapsed_ms=(time.perf_counter() - handler_start) * 1000,
+                )
+
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": f"[错误] {error_msg}",

@@ -24,6 +24,8 @@ from adc_linker_agent.api.models import (
     AgentQueryRequest,
     AgentQueryResponse,
     ErrorResponse,
+    FeedbackRequest,
+    FeedbackResponse,
     HealthResponse,
     ToolCallInfo,
     ToolInfo,
@@ -230,3 +232,26 @@ async def list_tools():
         for t in ALL_TOOLS
     ]
     return ToolsListResponse(tools=tools, count=len(tools))
+
+
+@router.post(
+    "/feedback",
+    response_model=FeedbackResponse,
+    summary="提交用户反馈",
+)
+async def submit_feedback(request: FeedbackRequest):
+    """记录用户反馈（好评/差评、分类、备注）并持久化到 feedback.jsonl。"""
+    import json
+    from pathlib import Path
+
+    feedback_path = Path(__file__).parent.parent.parent / "logs" / "feedback.jsonl"
+    feedback_path.parent.mkdir(parents=True, exist_ok=True)
+
+    entry = {
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        **request.model_dump(),
+    }
+    with open(feedback_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    return FeedbackResponse()

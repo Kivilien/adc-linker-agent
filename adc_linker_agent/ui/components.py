@@ -535,3 +535,103 @@ def render_literature_cards(lit_data: dict):
 
         if i < len(papers):
             st.divider()
+
+
+# ═══════════════════════════════════════════════════════════════
+# 用户反馈组件
+# ═══════════════════════════════════════════════════════════════
+
+
+def render_feedback_row(message_index: int):
+    """在助手消息下方渲染 👍/👎 反馈按钮及可展开表单。
+
+    使用 st.session_state 跟踪已评价的消息，防止重复投票。
+    差评时展开分类选择 + 自由文本输入。
+    """
+    import streamlit as st
+
+    feedback_key = f"feedback_{message_index}"
+    submitted_key = f"feedback_submitted_{message_index}"
+
+    # 已提交则跳过
+    if submitted_key in st.session_state and st.session_state[submitted_key]:
+        return
+
+    col1, col2, col3 = st.columns([1, 1, 6])
+    with col1:
+        if st.button("👍", key=f"up_{message_index}", help="回答有帮助"):
+            st.session_state[feedback_key] = "up"
+            st.session_state[submitted_key] = True
+            st.rerun()
+    with col2:
+        if st.button("👎", key=f"down_{message_index}", help="回答有问题"):
+            st.session_state[feedback_key] = "down"
+            st.session_state[submitted_key] = False
+            st.rerun()
+
+    # 差评时展示分类 + 备注表单
+    if st.session_state.get(feedback_key) == "down" and not st.session_state.get(submitted_key):
+        with st.expander("💬 哪里出了问题？", expanded=True):
+            category = st.selectbox(
+                "问题类型",
+                ["incorrect", "unclear", "slow", "other"],
+                format_func=lambda x: {
+                    "incorrect": "信息不准确",
+                    "unclear": "表达不清晰",
+                    "slow": "响应太慢",
+                    "other": "其他问题",
+                }.get(x, x),
+                key=f"cat_{message_index}",
+            )
+            comment = st.text_area(
+                "补充说明（可选）",
+                key=f"comment_{message_index}",
+                max_chars=500,
+                placeholder="请描述具体问题…",
+            )
+            if st.button("提交反馈", key=f"submit_{message_index}"):
+                _save_feedback(
+                    message_index,
+                    st.session_state[feedback_key],
+                    category,
+                    comment,
+                )
+                st.session_state[submitted_key] = True
+                st.success("感谢反馈！")
+
+    # 好评时展示确认
+    if st.session_state.get(feedback_key) == "up" and st.session_state.get(submitted_key):
+        st.caption("✓ 感谢反馈！")
+
+
+def _save_feedback(
+    message_index: int,
+    rating: str,
+    category: str | None,
+    comment: str | None,
+):
+    """将反馈持久化到 logs/feedback.jsonl。"""
+    import json
+    import time
+    from pathlib import Path
+
+    try:
+        import streamlit as st
+
+        thread_id = st.session_state.get("thread_id", "unknown")
+    except Exception:
+        thread_id = "unknown"
+
+    feedback_path = Path(__file__).parent.parent.parent / "logs" / "feedback.jsonl"
+    feedback_path.parent.mkdir(parents=True, exist_ok=True)
+
+    entry = {
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "thread_id": thread_id,
+        "message_index": message_index,
+        "rating": rating,
+        "category": category,
+        "comment": comment,
+    }
+    with open(feedback_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")

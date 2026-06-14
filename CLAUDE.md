@@ -44,3 +44,7 @@
 - 报告引擎 (`domain/report.py`) 零 LLM 依赖，纯 Python 数据聚合
 - 双通道状态: `messages` (LLM 上下文) + `shared_context` (结构化数据, UI 独立渲染)
 - 三阶段 Supervisor: Planner → Dispatcher → Synthesizer (含模板降级)
+- **用户反馈**: UI 内 👍/👎 按钮 → logs/feedback.jsonl
+- **自主审计**: 每周一 9:07 自动运行 `scripts/audit.py` + 8 模式扫描
+- **CI/CD**: `.github/workflows/ci.yml` (push/PR) + `.github/workflows/weekly-audit.yml` (定时)
+- **文档**: `docs/AUTONOMOUS.md` 自主迭代系统说明

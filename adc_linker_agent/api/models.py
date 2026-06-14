@@ -6,6 +6,7 @@ API 数据模型（Pydantic v2）
 """
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -139,3 +140,28 @@ class ErrorResponse(BaseModel):
         default_factory=lambda: datetime.now().isoformat(),
         description="错误时间戳",
     )
+
+
+# ─── 反馈模型 ───
+
+
+class FeedbackRequest(BaseModel):
+    """用户对 Agent 响应的反馈"""
+
+    thread_id: str = Field(..., description="对话线程 ID")
+    message_index: int = Field(..., ge=0, description="被评价消息的索引")
+    rating: Literal["up", "down"] = Field(..., description="好评或差评")
+    category: str | None = Field(
+        default=None,
+        description="反馈类别: incorrect, unclear, slow, other",
+    )
+    comment: str | None = Field(
+        default=None, max_length=500, description="可选自由文本"
+    )
+
+
+class FeedbackResponse(BaseModel):
+    """反馈提交确认"""
+
+    status: str = Field(default="ok")
+    message: str = Field(default="Feedback recorded. Thank you!")

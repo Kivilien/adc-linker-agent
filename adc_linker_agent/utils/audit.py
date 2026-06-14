@@ -77,3 +77,22 @@ def write_audit_log(
     except OSError:
         # 写入失败静默降级，不阻塞请求
         pass
+
+
+def write_ui_audit(
+    thread_id: str = "default",
+    query: str = "",
+    status: str = "ok",
+    elapsed_ms: float = 0.0,
+    tool_calls: int = 0,
+) -> None:
+    """从 Streamlit UI 写入审计日志（便捷封装）。"""
+    write_audit_log(
+        client_ip="ui",
+        thread_id=thread_id,
+        query=query,
+        status=status,
+        elapsed_ms=elapsed_ms,
+        tool_calls=tool_calls,
+        user_agent="streamlit",
+    )
