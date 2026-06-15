@@ -36,3 +36,9 @@ htmlcov/
 
 # Audit logs
 logs/
+
+# Generated cache
+data/linker_properties_cache.json
+
+# Local Claude Code config
+.claude/
