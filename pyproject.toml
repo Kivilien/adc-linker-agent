@@ -7,17 +7,17 @@ requires-python = ">=3.11,<3.13"
 
 dependencies = [
     # Core (Week 1-5) — 上界锁定防止主版本破坏性变更
-    "python-dotenv>=1.0.0",
+    "python-dotenv>=1.0.0,<2.0.0",
     "pydantic>=2.0.0,<3.0.0",
     "mcp>=1.0.0,<2.0.0",
-    "langgraph>=0.3.0,<0.5.0",
-    "langchain-core>=0.3.0,<0.5.0",
-    "langchain-anthropic>=0.3.0,<1.0.0",
+    "langgraph>=1.0.0,<3.0.0",
+    "langchain-core>=1.0.0,<2.0.0",
+    "langchain-anthropic>=0.3.0,<2.0.0",
     "langchain-openai>=1.0.0,<2.0.0",
     "langchain-mcp-adapters>=0.2.0,<1.0.0",
     "anthropic>=0.50.0,<1.0.0",
     "rdkit-pypi>=2022.9.0,<2025.0.0",
-    "numpy<2.0.0",  # rdkit-pypi 2022.9 与 NumPy 2.x 不兼容
+
     "httpx>=0.28.0,<1.0.0",
     "tabulate>=0.9.0,<1.0.0",
     "PyYAML>=6.0,<7.0.0",
@@ -36,6 +36,18 @@ web = [
     "uvicorn[standard]>=0.30.0,<1.0.0",
     "streamlit>=1.40.0,<2.0.0",
 ]
+viz = [
+    "py3Dmol>=2.4.0,<3.0.0",
+]
+export = [
+    "python-pptx>=1.0.0,<2.0.0",
+    "Jinja2>=3.0.0,<4.0.0",
+]
+all = [
+    "adc-linker-agent[web]",
+    "adc-linker-agent[viz]",
+    "adc-linker-agent[export]",
+]
 
 [tool.setuptools]
 packages = ["adc_linker_agent"]
@@ -49,6 +61,13 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"adc_linker_agent/domain/enumerator.py" = ["E501"]
+"scripts/import_pubchem.py" = ["E501"]
+"scripts/import_literature.py" = ["E501"]
+"adc_linker_agent/ui/export.py" = ["E501"]
+"adc_linker_agent/ui/templates/*" = ["ALL"]
 
 [tool.ruff.format]
 quote-style = "double"

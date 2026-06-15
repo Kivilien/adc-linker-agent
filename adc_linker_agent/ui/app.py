@@ -15,6 +15,7 @@ ADC Linker Agent — Streamlit 聊天界面（架构 v2）
 import asyncio
 import contextlib
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,8 @@ from adc_linker_agent.utils.audit import write_ui_audit
 from adc_linker_agent.utils.config import get_config
 from adc_linker_agent.utils.validators import MEDICAL_DISCLAIMER
 
+logger = logging.getLogger(__name__)
+
 # ─── 会话持久化 ───
 
 SESSION_FILE = Path(__file__).parent.parent.parent / ".streamlit_session.json"
@@ -58,7 +61,7 @@ def _load_session() -> tuple[list[dict], str]:
             data = json.loads(SESSION_FILE.read_text())
             return data.get("messages", []), data.get("thread_id", "")
     except Exception:
-        pass
+        logger.warning("Failed to load session from file", exc_info=True)
     return [], ""
 
 
@@ -86,6 +89,7 @@ st.caption(
 # ─── 侧边栏 ───
 
 mode = render_sidebar()
+st.session_state._mode = mode
 
 # ─── 初始化 session state ───
 
@@ -182,6 +186,9 @@ for msg in st.session_state.messages:
             lit = msg.get("literature_data")
 
             if report:
+                if isinstance(report, dict):
+                    from adc_linker_agent.domain.report import DesignReport
+                    report = DesignReport.from_dict(report)
                 render_design_report(report)
             if lit:
                 render_literature_cards(lit)
@@ -278,7 +285,15 @@ async def _run_agent(
 
 # ─── 聊天输入 ───
 
-if prompt := st.chat_input("输入你的 ADC 连接子相关查询..."):
+# ─── 聊天输入 ───
+
+chat_placeholder = (
+    "输入目标 pH 或点击侧边栏预设..."
+    if st.session_state.get("_mode") == "quick"
+    else "输入你的 ADC 连接子相关查询..."
+)
+
+if prompt := st.chat_input(chat_placeholder):
     # 用户消息
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -286,7 +301,62 @@ if prompt := st.chat_input("输入你的 ADC 连接子相关查询..."):
 
     # Agent 响应
     with st.chat_message("assistant"):
-        if not has_api_key:
+        # ─── Quick 模式：无 LLM 直接设计 ───
+        if mode == "quick":
+            import re
+
+            from adc_linker_agent.domain.linker_designer import (
+                LinkerDesigner,
+                LinkerDesignRequest,
+            )
+            from adc_linker_agent.domain.report import generate_report
+
+            handler_start = time.perf_counter()
+            try:
+                quick_ph = st.session_state.get("quick_ph", 5.0)
+                quick_mech_raw = st.session_state.get("quick_mechanism", "All")
+                preferred_mech = None if quick_mech_raw == "All" else quick_mech_raw
+
+                # 从用户输入解析 pH 覆盖
+                ph_match = re.search(r"pH\s*([\d.]+)", prompt)
+                target_ph = float(ph_match.group(1)) if ph_match else quick_ph
+
+                designer = LinkerDesigner()
+                request = LinkerDesignRequest(
+                    target_ph=target_ph,
+                    preferred_mechanism=preferred_mech,
+                    max_results=5,
+                )
+                result = designer.design(request)
+                report = generate_report(result)
+
+                render_design_report(report)
+
+                elapsed = (time.perf_counter() - handler_start) * 1000
+                st.caption(
+                    f"⚡ Quick Design | ⏱️ {elapsed:.0f}ms | "
+                    f"No LLM (纯本地计算)"
+                )
+                st.caption(MEDICAL_DISCLAIMER)
+
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": (
+                        f"[Quick Design] pH={target_ph}, "
+                        f"mechanism={quick_mech_raw}"
+                    ),
+                    "tool_calls": [],
+                    "design_report": report,
+                })
+                _save_session(
+                    st.session_state.messages,
+                    st.session_state.thread_id,
+                )
+
+            except Exception as e:
+                st.error(f"Quick design failed: {e}")
+
+        elif not has_api_key:
             st.error(
                 "❌ 无法调用 Agent：未配置 API Key。\n\n"
                 "请在 `.env` 文件中设置 `ANTHROPIC_API_KEY` 或 `DEEPSEEK_API_KEY`。"
@@ -324,6 +394,9 @@ if prompt := st.chat_input("输入你的 ADC 连接子相关查询..."):
                 # 1. 设计报告
                 report = ctx.get("design_report")
                 if report:
+                    if isinstance(report, dict):
+                        from adc_linker_agent.domain.report import DesignReport
+                        report = DesignReport.from_dict(report)
                     render_design_report(report)
                     has_structured = True
 

@@ -29,6 +29,7 @@ from .tool_ph import predict_ph_stability_all_phases as _predict_ph_stability_al
 from .tool_property import calculate_properties as _calculate_properties
 from .tool_property import check_lipinski as _check_lipinski
 from .tool_property import check_toxicity as _check_toxicity
+from .tool_pubchem import search_pubchem_linkers as _search_pubchem_linkers
 from .tool_validate import validate_smiles as _validate_smiles
 
 # ─── 创建 MCP 服务器实例 ───
@@ -59,6 +60,7 @@ mcp.tool()(_predict_ph_stability_all_phases)
 mcp.tool()(_search_linker_scaffolds)
 mcp.tool()(_design_linker)
 mcp.tool()(_search_literature)
+mcp.tool()(_search_pubchem_linkers)
 
 
 # ─── 入口点 ───

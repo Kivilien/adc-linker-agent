@@ -24,10 +24,13 @@ pH 稳定性模拟器（PhSimulator）
     YAML 不可用时自动回退到内置硬编码列表。
 """
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from rdkit import Chem
+
+logger = logging.getLogger(__name__)
 
 # ─── pH 敏感官能团定义 ───
 #
@@ -99,7 +102,10 @@ def load_labile_groups(yaml_path: str | None = None) -> list[PhLabileGroup]:
                     )
                 return groups
         except Exception:
-            pass  # YAML 解析失败 → 降级到内置列表
+            logger.warning(
+                "YAML parsing failed, falling back to builtin labile groups",
+                exc_info=True,
+            )
 
     # 降级：返回内置硬编码列表
     return _builtin_labile_groups()

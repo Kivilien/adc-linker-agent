@@ -9,9 +9,12 @@ ADC Linker Domain Models
 """
 
 import contextlib
+import logging
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
+
+logger = logging.getLogger(__name__)
 
 
 class CleavageMechanism(StrEnum):
@@ -223,13 +226,14 @@ def render_molecule_image(smiles: str, size: tuple[int, int] = (400, 250)) -> by
         img.save(buf, format="PNG")
         return buf.getvalue()
     except Exception:
-        pass
+        logger.warning("MolToImage failed, falling back to SVG", exc_info=True)
 
     # 方案 B: SVG 降级（可能没有 2D 坐标也能渲染）
     try:
         svg = Draw.MolToSVG(mol, width=size[0], height=size[1])
         return svg.encode("utf-8")
     except Exception:
+        logger.warning("MolToSVG failed, no render available", exc_info=True)
         return None
 
 
@@ -264,4 +268,5 @@ def render_molecule_svg(smiles: str, size: tuple[int, int] = (400, 250)) -> str 
     try:
         return Draw.MolToSVG(mol, width=size[0], height=size[1])
     except Exception:
+        logger.warning("MolToSVG failed for SMILES rendering", exc_info=True)
         return None

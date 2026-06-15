@@ -78,6 +78,28 @@ class DesignReport:
     warnings: list[str]
     failed_scaffolds: list[dict]
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "DesignReport":
+        """从字典（shared_context 序列化数据）重建 DesignReport。"""
+        return cls(
+            generated_at=data.get("generated_at", ""),
+            request_summary=data.get("request_summary", ""),
+            total_evaluated=data.get("total_evaluated", 0),
+            total_filtered=data.get("total_filtered", 0),
+            candidate_count=data.get("candidate_count", 0),
+            candidates=[
+                CandidateSummary(**c) if isinstance(c, dict) else c
+                for c in data.get("candidates", [])
+            ],
+            detailed_cards=data.get("detailed_cards", []),
+            comparison_text=data.get("comparison_text", ""),
+            comparison_dimensions=data.get("comparison_dimensions", []),
+            has_any_toxicity=data.get("has_any_toxicity", False),
+            toxicity_summary=data.get("toxicity_summary", ""),
+            warnings=data.get("warnings", []),
+            failed_scaffolds=data.get("failed_scaffolds", []),
+        )
+
 
 # ─── 报告生成 ───
 

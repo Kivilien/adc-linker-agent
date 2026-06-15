@@ -242,10 +242,32 @@ def render_sidebar():
 
         mode = st.radio(
             "Agent 模式",
-            options=["multi", "single"],
-            format_func=lambda x: "🤖 Multi-Agent (推荐)" if x == "multi" else "🧠 Single Agent",
-            help="Multi-Agent: Supervisor+3专长 / Single: ReAct循环",
+            options=["quick", "multi", "single"],
+            format_func=lambda x: {
+                "quick": "⚡ Quick Design (No LLM)",
+                "multi": "🤖 Multi-Agent (推荐)",
+                "single": "🧠 Single Agent",
+            }.get(x, x),
+            help="Quick: 无需 LLM 直接设计 / Multi: Supervisor+4专长 / Single: ReAct循环",
         )
+
+        # ─── Quick 模式参数 ───
+        if mode == "quick":
+            st.divider()
+            st.caption("**Quick Design 参数**")
+            st.slider(
+                "目标 pH",
+                min_value=0.0, max_value=14.0, value=5.0, step=0.1,
+                help="期望裂解 pH (5.0=溶酶体, 5.5=晚期内体, 6.0=早期内体, 7.4=血液)",
+                key="quick_ph",
+            )
+            st.selectbox(
+                "优先机制",
+                options=["All", "pH_sensitive", "enzymatic", "redox", "non_cleavable"],
+                index=0,
+                help="按裂解机制筛选 (All=不限)",
+                key="quick_mechanism",
+            )
 
         st.caption(f"🔌 提供商: **{config.llm_provider}** | 模型: **{config.llm_model}**")
 
@@ -268,7 +290,11 @@ def render_sidebar():
         """)
 
         st.divider()
-        st.caption("ADC Linker Agent v1.1.0 | 323 tests passing")
+
+        # ─── 主题切换提示 ───
+        st.caption("🌓 主题: 右上角 **⋮ → Settings → Theme** 切换深色/浅色")
+
+        st.caption("ADC Linker Agent v1.1.0 | 342 tests passing")
 
     return mode
 
@@ -305,6 +331,58 @@ def render_design_report(report):
     if not report.candidates:
         st.warning("未找到符合筛选条件的候选。建议放宽 QED 或 SAS 要求。")
         return
+
+    st.divider()
+
+    # ─── 导出按钮 + 3D 切换 ───
+    export_col1, export_col2, _ = st.columns([1, 1, 8])
+
+    with export_col1:
+        if st.button("🌐 HTML Slides", help="下载精美 HTML 幻灯片（浏览器直接演示）",
+                     key="export_html", use_container_width=True):
+            with st.spinner("生成 HTML 幻灯片..."):
+                from adc_linker_agent.ui.export import generate_html_slides
+                html_bytes = generate_html_slides(report)
+                if html_bytes:
+                    ts = report.generated_at.replace(" ", "_").replace(":", "-")
+                    st.download_button(
+                        label="⬇️ 下载 HTML Slides",
+                        data=html_bytes,
+                        file_name=f"adc_report_{ts}.html",
+                        mime="text/html",
+                        key="dl_html",
+                    )
+                else:
+                    st.warning("需要 Jinja2: `pip install Jinja2`")
+
+    with export_col2:
+        if st.button("📊 PPTX", help="下载可编辑 PowerPoint",
+                     key="export_pptx", use_container_width=True):
+            with st.spinner("生成 PPTX..."):
+                from adc_linker_agent.ui.export import generate_pptx
+                pptx_bytes = generate_pptx(report)
+                if pptx_bytes:
+                    ts = report.generated_at.replace(" ", "_").replace(":", "-")
+                    st.download_button(
+                        label="⬇️ 下载 PPTX",
+                        data=pptx_bytes,
+                        file_name=f"adc_report_{ts}.pptx",
+                        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                        key="dl_pptx",
+                    )
+                else:
+                    st.warning("需要 python-pptx: `pip install python-pptx`")
+
+    # ─── 3D 可视化全局切换 ───
+    viz_col1, viz_col2, _ = st.columns([1, 2, 7])
+    with viz_col1:
+        viz_label = "🌍 3D" if not st.session_state.get("use_3d_viz", False) else "📷 2D"
+        if st.button(viz_label, help="切换 2D/3D 分子视图", key="toggle_3d"):
+            st.session_state.use_3d_viz = not st.session_state.get("use_3d_viz", False)
+            st.rerun()
+    with viz_col2:
+        mode_text = "3D 交互模式" if st.session_state.get("use_3d_viz", False) else "2D 结构图"
+        st.caption(f"分子视图: {mode_text}")
 
     st.divider()
 
@@ -388,8 +466,17 @@ def _render_candidate_card(card: dict):
         st.subheader(f"{rank_emoji} {name}")
         st.caption(f"**机制**: {mech_label} | **SMILES**: `{smiles}`")
 
-        # 结构式图片
-        render_molecule_structure(smiles, caption=name)
+        # 结构式图片（支持 2D/3D 切换）
+        if st.session_state.get("use_3d_viz", False):
+            from adc_linker_agent.ui.renderers import render_molecule_3d
+            html_3d = render_molecule_3d(smiles)
+            if html_3d:
+                st.components.v1.html(html_3d, height=400, scrolling=False)
+            else:
+                st.caption("⚠️ 3D 渲染不可用（安装 py3Dmol: `pip install py3Dmol`）")
+                render_molecule_structure(smiles, caption=name)
+        else:
+            render_molecule_structure(smiles, caption=name)
 
         # 分数栏
         scores = card.get("scores", {})
