@@ -24,12 +24,11 @@ Week 7 核心模块：pH 感知的连接子设计优化循环。
   打分 = 综合评分，排名 = offer排序
 """
 
-import csv
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from adc_linker_agent.domain.database import LinkerDatabase
 from adc_linker_agent.domain.ph_simulator import PhSimulator
 from adc_linker_agent.domain.properties import MolPropertyCalculator
 
@@ -52,7 +51,8 @@ class LinkerDesignRequest(BaseModel):
 
     target_ph: float = Field(
         default=5.0,
-        ge=0, le=14,
+        ge=0,
+        le=14,
         description="期望的裂解 pH（默认 5.0 = 溶酶体）",
     )
     preferred_mechanism: str | None = Field(
@@ -61,12 +61,14 @@ class LinkerDesignRequest(BaseModel):
     )
     min_qed: float = Field(
         default=0.2,
-        ge=0, le=1,
+        ge=0,
+        le=1,
         description="最低 QED 药物相似性阈值",
     )
     max_sas: float = Field(
         default=7.0,
-        ge=1, le=10,
+        ge=1,
+        le=10,
         description="最高合成难度阈值",
     )
     min_molecular_weight: float | None = Field(
@@ -83,7 +85,8 @@ class LinkerDesignRequest(BaseModel):
     )
     max_results: int = Field(
         default=5,
-        ge=1, le=20,
+        ge=1,
+        le=20,
         description="返回的最大候选数",
     )
 
@@ -172,10 +175,10 @@ class LinkerDesigner:
 
     # 默认评分权重（类级常量，实例可通过 __init__ 覆盖）
     DEFAULT_WEIGHTS = {
-        "blood_stability": 0.35,   # 血液稳定性最重要（安全第一）
+        "blood_stability": 0.35,  # 血液稳定性最重要（安全第一）
         "lysosome_lability": 0.30,  # 溶酶体裂解（有效性）
-        "drug_likeness": 0.20,     # 药物相似性
-        "synthetic": 0.15,         # 合成可行性
+        "drug_likeness": 0.20,  # 药物相似性
+        "synthetic": 0.15,  # 合成可行性
     }
 
     # 向后兼容：类级别名（Week 2.3 起推荐使用 DEFAULT_WEIGHTS）
@@ -184,24 +187,35 @@ class LinkerDesigner:
     WEIGHT_DRUG_LIKENESS = DEFAULT_WEIGHTS["drug_likeness"]
     WEIGHT_SYNTHETIC = DEFAULT_WEIGHTS["synthetic"]
 
-    def __init__(self, csv_path: str | None = None, weights: dict[str, float] | None = None):
+    def __init__(
+        self,
+        csv_path: str | None = None,
+        weights: dict[str, float] | None = None,
+        database: LinkerDatabase | None = None,
+    ):
         """
         Args:
-            csv_path: 连接子骨架 CSV 文件路径。
-                      默认: <project_root>/data/linker_scaffolds.csv
-            weights: 自定义评分权重 dict。键: blood_stability, lysosome_lability,
-                     drug_likeness, synthetic。值: 0-1 的浮点数（会被归一化）。
-                     默认使用 DEFAULT_WEIGHTS。
+            csv_path: 连接子骨架 CSV 文件路径（向后兼容，推荐使用 database 参数）。
+            weights: 自定义评分权重 dict。
+            database: 共享的 LinkerDatabase 实例（推荐）。传入后忽略 csv_path。
         """
-        if csv_path is None:
-            from adc_linker_agent.utils.config import get_config
-            config = get_config()
-            csv_path = str(config.data_dir / "linker_scaffolds.csv")
+        if database is not None:
+            self._db = database
+        else:
+            if csv_path is None:
+                from adc_linker_agent.utils.config import get_config
 
-        self.csv_path = Path(csv_path)
+                config = get_config()
+                csv_path = str(config.data_dir / "linker_scaffolds.csv")
+            self._db = LinkerDatabase(csv_path=csv_path)
+
+        self.csv_path = self._db.csv_path  # 向后兼容
         self._property_calc = MolPropertyCalculator()
         self._ph_sim = PhSimulator()
-        self._scaffolds: list[dict] = self._load_scaffolds()
+        self._scaffolds: list[dict] = list(self._db)  # 向后兼容
+
+        # 属性缓存
+        self._cache = self._db.load_cache()
 
         # 评分权重：验证 + 归一化
         if weights is not None:
@@ -214,32 +228,6 @@ class LinkerDesigner:
         self.WEIGHT_LYSOSOME_LABILITY = self.weights["lysosome_lability"]
         self.WEIGHT_DRUG_LIKENESS = self.weights["drug_likeness"]
         self.WEIGHT_SYNTHETIC = self.weights["synthetic"]
-
-    def _load_scaffolds(self) -> list[dict]:
-        """从 CSV 加载连接子骨架数据库。"""
-        scaffolds: list[dict] = []
-        with open(self.csv_path, newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                # 解析列表字段
-                if "drugs_using" in row and row["drugs_using"]:
-                    row["drugs_using"] = [
-                        d.strip() for d in row["drugs_using"].split("|") if d.strip()
-                    ]
-                else:
-                    row["drugs_using"] = []
-
-                # 解析数值字段
-                if "trigger_ph" in row and row["trigger_ph"]:
-                    try:
-                        row["trigger_ph"] = float(row["trigger_ph"])
-                    except ValueError:
-                        row["trigger_ph"] = None
-                else:
-                    row["trigger_ph"] = None
-
-                scaffolds.append(row)
-        return scaffolds
 
     @property
     def scaffold_count(self) -> int:
@@ -266,11 +254,13 @@ class LinkerDesigner:
                 cand = self._evaluate_candidate(scaffold, request)
                 results.append(cand)
             except Exception as exc:
-                failed.append({
-                    "name": scaffold.get("name", "Unknown"),
-                    "smiles": scaffold.get("smiles", ""),
-                    "error": str(exc),
-                })
+                failed.append(
+                    {
+                        "name": scaffold.get("name", "Unknown"),
+                        "smiles": scaffold.get("smiles", ""),
+                        "error": str(exc),
+                    }
+                )
 
         # ─── 3. 多维度打分 ───
         for cand in results:
@@ -278,7 +268,8 @@ class LinkerDesigner:
 
         # ─── 4. 过滤低分候选 ───
         filtered = [
-            c for c in results
+            c
+            for c in results
             if c.qed >= request.min_qed
             and c.sas <= request.max_sas
             and (not request.require_blood_stable or c.blood_stable)
@@ -289,7 +280,7 @@ class LinkerDesigner:
         filtered.sort(key=lambda c: c.overall_score, reverse=True)
 
         # ─── 6. 截取 Top-N ───
-        top = filtered[:request.max_results]
+        top = filtered[: request.max_results]
 
         # ─── 7. 生成设计总结 ───
         summary = self._generate_summary(top, request, total_evaluated, total_filtered)
@@ -306,45 +297,43 @@ class LinkerDesigner:
     # ─── 筛选 ───
 
     def _filter_scaffolds(self, request: LinkerDesignRequest) -> list[dict]:
-        """根据需求筛选匹配的骨架。"""
-        matches: list[dict] = []
+        """根据需求筛选匹配的骨架。使用 LinkerDatabase.search()。"""
+        # 先用数据库搜索做机制和 MW 筛选
+        matches = self._db.search(
+            mechanism=request.preferred_mechanism,
+            mw_min=request.min_molecular_weight,
+            mw_max=request.max_molecular_weight,
+        )
 
-        for scaffold in self._scaffolds:
-            # 机制筛选
-            if (
-                request.preferred_mechanism
-                and scaffold.get("mechanism") != request.preferred_mechanism
-            ):
-                continue
-
-            # pH 匹配度：骨架的 trigger_ph 应该接近 target_ph
+        # 进一步按 pH 匹配度筛选
+        ph_filtered: list[dict] = []
+        for scaffold in matches:
             trigger_ph = scaffold.get("trigger_ph")
             if trigger_ph is not None and request.target_ph:
                 ph_diff = abs(trigger_ph - request.target_ph)
-                # 允许 ±1.5 pH 单位的容差
                 if ph_diff > 1.5:
                     continue
-
-            matches.append(scaffold)
+            ph_filtered.append(scaffold)
 
         # 如果没有精确匹配，放宽机制筛选（仍保留 pH 匹配容差）
-        if not matches and request.preferred_mechanism:
-            for scaffold in self._scaffolds:
-                # 跳过机制检查，但保留 pH 匹配
+        if not ph_filtered and request.preferred_mechanism:
+            all_matches = self._db.search(
+                mw_min=request.min_molecular_weight,
+                mw_max=request.max_molecular_weight,
+            )
+            for scaffold in all_matches:
                 trigger_ph = scaffold.get("trigger_ph")
                 if trigger_ph is not None and request.target_ph:
                     ph_diff = abs(trigger_ph - request.target_ph)
                     if ph_diff > 1.5:
                         continue
-                matches.append(scaffold)
+                ph_filtered.append(scaffold)
 
-        return matches
+        return ph_filtered
 
     # ─── 评估 ───
 
-    def _evaluate_candidate(
-        self, scaffold: dict, request: LinkerDesignRequest
-    ) -> LinkerCandidate:
+    def _evaluate_candidate(self, scaffold: dict, request: LinkerDesignRequest) -> LinkerCandidate:
         """
         全面评估一个连接子候选。
 
@@ -354,11 +343,30 @@ class LinkerDesigner:
         smiles = scaffold.get("smiles", "")
         mechanism = scaffold.get("mechanism", "unknown")
 
+        # ─── 查缓存 ───
+        cached = self._db.get_cached_properties(smiles) if self._cache else None
+
         # ─── 分子性质 ───
-        props = self._property_calc.calculate_all(smiles)
+        if cached:
+            props = {
+                "logp": cached["logp"],
+                "qed": cached["qed"],
+                "sas": cached["sas"],
+                "tpsa": cached["tpsa"],
+                "molecular_weight": cached["molecular_weight"],
+                "hbd": cached["hbd"],
+                "hba": cached["hba"],
+                "rotatable_bonds": cached["rotatable_bonds"],
+            }
+        else:
+            props = self._property_calc.calculate_all(smiles)
 
         # ─── pH 稳定性 ───
-        ph_results = self._ph_sim.predict_physiological_phases(smiles)
+        if cached and "ph_stability" in cached:
+            # 从缓存重建 PhStabilityResult
+            ph_results = self._ph_sim.predict_physiological_phases(smiles)
+        else:
+            ph_results = self._ph_sim.predict_physiological_phases(smiles)
         blood_stable = ph_results.get("blood", None)
         lysosome = ph_results.get("lysosome", None)
 
@@ -415,11 +423,16 @@ class LinkerDesigner:
             weaknesses.append("溶酶体中裂解不充分")
 
         # ─── 毒性检测 ───
-        from adc_linker_agent.domain.properties import check_toxicity_alerts
+        if cached and "toxicity_alerts" in cached:
+            tox_alerts = cached["toxicity_alerts"]
+            has_tox = cached.get("has_toxicity_alerts", len(tox_alerts) > 0)
+            toxicity_result = {"alerts": tox_alerts, "has_alerts": has_tox}
+        else:
+            from adc_linker_agent.domain.properties import check_toxicity_alerts
 
-        toxicity_result = check_toxicity_alerts(smiles)
-        tox_alerts = toxicity_result.get("alerts", [])
-        has_tox = toxicity_result.get("has_alerts", False)
+            toxicity_result = check_toxicity_alerts(smiles)
+            tox_alerts = toxicity_result.get("alerts", [])
+            has_tox = toxicity_result.get("has_alerts", False)
         risk_flags: list[str] = []
 
         if has_tox:
@@ -441,18 +454,11 @@ class LinkerDesigner:
                 f"即使性质分数高也不建议开发。"
             )
         elif blood_ok and lysosome_ok:
-            recommendation = (
-                f"✅ 推荐：{name} 满足理想 ADC 连接子条件"
-                f"（血液稳定 + 溶酶体裂解）"
-            )
+            recommendation = f"✅ 推荐：{name} 满足理想 ADC 连接子条件（血液稳定 + 溶酶体裂解）"
         elif blood_ok and not lysosome_ok:
-            recommendation = (
-                f"⚠️ 可用但需优化：{name} 血液稳定但溶酶体裂解不足"
-            )
+            recommendation = f"⚠️ 可用但需优化：{name} 血液稳定但溶酶体裂解不足"
         elif not blood_ok:
-            recommendation = (
-                f"❌ 不推荐：{name} 在血液中不稳定，不适合 ADC 应用"
-            )
+            recommendation = f"❌ 不推荐：{name} 在血液中不稳定，不适合 ADC 应用"
         else:
             recommendation = f"需进一步评估：{name}"
 
@@ -501,9 +507,7 @@ class LinkerDesigner:
 
     # ─── 打分 ───
 
-    def _score_candidate(
-        self, cand: LinkerCandidate, request: LinkerDesignRequest
-    ) -> None:
+    def _score_candidate(self, cand: LinkerCandidate, request: LinkerDesignRequest) -> None:
         """
         多维度综合评分。
 
