@@ -85,3 +85,8 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
 addopts = "-v --tb=short"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.6.0",
+]
