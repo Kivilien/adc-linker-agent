@@ -28,9 +28,9 @@ class TestToolWrappers:
         for tool in ALL_TOOLS:
             assert isinstance(tool, BaseTool), f"{tool.name} is not BaseTool"
 
-    def test_nine_tools_in_list(self):
-        """ALL_TOOLS 应该包含 9 个工具（含毒性检测+文献搜索）"""
-        assert len(ALL_TOOLS) == 9
+    def test_tools_count(self):
+        """ALL_TOOLS 包含全部 10 个工具（含 PubChem 搜索）"""
+        assert len(ALL_TOOLS) == 10
 
     def test_unique_tool_names(self):
         """工具名称应该不重复"""
@@ -68,8 +68,17 @@ class TestCalculatePropertiesTool:
 
     def test_returns_all_properties(self):
         result = calculate_properties.invoke({"smiles": BENZENE_SMILES})
-        expected = {"smiles", "logp", "qed", "sas", "tpsa",
-                     "molecular_weight", "hbd", "hba", "rotatable_bonds"}
+        expected = {
+            "smiles",
+            "logp",
+            "qed",
+            "sas",
+            "tpsa",
+            "molecular_weight",
+            "hbd",
+            "hba",
+            "rotatable_bonds",
+        }
         assert set(result.keys()) == expected
 
     def test_invalid_smiles_returns_error(self):
@@ -86,8 +95,15 @@ class TestCheckLipinskiTool:
 
     def test_returns_all_keys(self):
         result = check_lipinski.invoke({"smiles": ASPIRIN_SMILES})
-        expected = {"molecular_weight", "logp", "hbd", "hba",
-                     "violations", "violation_details", "is_oral_drug_like"}
+        expected = {
+            "molecular_weight",
+            "logp",
+            "hbd",
+            "hba",
+            "violations",
+            "violation_details",
+            "is_oral_drug_like",
+        }
         assert set(result.keys()) == expected
 
 

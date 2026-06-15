@@ -45,9 +45,9 @@ class TestToolSetAssignment:
         tool_names = {t.name for t in PH_TOOLS}
         assert tool_names == {"predict_ph_stability", "predict_ph_stability_all_phases"}
 
-    def test_linker_agent_has_all_9_tools(self):
-        """LinkerDesignAgent 拥有全部 9 个工具（含毒性检测+文献搜索）"""
-        assert len(LINKER_TOOLS) == 9
+    def test_linker_agent_has_all_tools(self):
+        """LinkerDesignAgent 拥有全部工具（含 PubChem 搜索）"""
+        assert len(LINKER_TOOLS) == len(ALL_TOOLS)
         assert LINKER_TOOLS == ALL_TOOLS
 
     def test_literature_agent_has_1_tool(self):
@@ -91,9 +91,7 @@ class TestToolMap:
     def test_each_mapped_function_has_invoke(self):
         """每个映射的 LangChain StructuredTool 应该有 invoke 方法"""
         for name, func in _TOOL_MAP.items():
-            assert hasattr(func, "invoke"), (
-                f"{name} should have .invoke() method"
-            )
+            assert hasattr(func, "invoke"), f"{name} should have .invoke() method"
 
 
 class TestExecuteToolCalls:
@@ -103,11 +101,13 @@ class TestExecuteToolCalls:
         """正确执行单个 tool_call"""
         ai_msg = AIMessage(
             content="",
-            tool_calls=[{
-                "name": "validate_smiles",
-                "args": {"smiles": "c1ccccc1"},
-                "id": "call_test_1",
-            }],
+            tool_calls=[
+                {
+                    "name": "validate_smiles",
+                    "args": {"smiles": "c1ccccc1"},
+                    "id": "call_test_1",
+                }
+            ],
         )
         results = _execute_tool_calls(ai_msg)
         tool_messages, raw_results = results
@@ -146,11 +146,13 @@ class TestExecuteToolCalls:
         """未知工具名返回错误信息而不崩溃"""
         ai_msg = AIMessage(
             content="",
-            tool_calls=[{
-                "name": "nonexistent_tool_xyz",
-                "args": {},
-                "id": "call_bad",
-            }],
+            tool_calls=[
+                {
+                    "name": "nonexistent_tool_xyz",
+                    "args": {},
+                    "id": "call_bad",
+                }
+            ],
         )
         tool_messages, _raw = _execute_tool_calls(ai_msg)
         assert len(tool_messages) == 1
@@ -166,11 +168,13 @@ class TestExecuteToolCalls:
         """工具参数无效时返回错误不崩溃"""
         ai_msg = AIMessage(
             content="",
-            tool_calls=[{
-                "name": "validate_smiles",
-                "args": {"smiles": "THIS_IS_NOT_VALID"},
-                "id": "call_invalid",
-            }],
+            tool_calls=[
+                {
+                    "name": "validate_smiles",
+                    "args": {"smiles": "THIS_IS_NOT_VALID"},
+                    "id": "call_invalid",
+                }
+            ],
         )
         tool_messages, _raw = _execute_tool_calls(ai_msg)
         assert len(tool_messages) == 1

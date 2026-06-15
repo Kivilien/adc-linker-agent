@@ -13,15 +13,36 @@
 3. **成功标准**: 什么算"完成"（防止模型提前终止）
 
 ## 开发流程
-1. 明确目标 → 2. 读上下文 → 3. EnterPlanMode → 4. 最小修改 → 5. ruff + pytest → 6. 验证
+1. 明确目标 → 2. 读上下文 → 3. Tier评估 (T3跳过/T2匹配1顾问/T1全顾问) → 4. EnterPlanMode → 5. 顾问咨询(联网+GitHub挖掘) → 6. 最小修改 → 7. ruff + pytest → 8. 验证
+
+## 顾问委员会 (v1.2)
+- **技术顾问** (`technical-advisor`): 全栈技术评估，联网查最佳实践，GitHub 挖掘开发类 skill
+- **UI设计顾问** (`ui-design-advisor`): UI/UX 设计评估，联网查设计趋势，GitHub 挖掘 UI 组件
+- **竞品体验官** (`competitor-power-user`): 模拟 MoleculeForge 用户，功能差距分析，用户视角反馈
+- 顾问输出统一格式: 立场 → 评估 → 建议(Must/Should/Nice) → GitHub推荐 → 风险 → 来源
+- 知识累积: `~/.claude/advisors/<name>/memory.md` 跨会话学习
+
+## GitHub Skill 挖掘
+- `gh search repos "[keyword] skill OR agent OR mcp" --sort=stars`
+- 评分 ≥7 → 下载到 `~/.agents/skills/imported/` → 注册到 registry.yaml
+- 项目专用 skill 存储: `.claude/skills/registry.yaml`
 
 ## 质量门禁（硬门禁，不可跳过）
-- `ruff check` — 零错误
-- `pytest tests/ -x` — 全部通过
-- `git diff` — 确认无无关改动
+
+**每次代码修改后立即执行，不允许攒到最后批量验证：**
+```bash
+ruff check . --fix && ruff check . && pytest -x --tb=short
+```
+1. `ruff check . --fix` — 自动修复能修的
+2. `ruff check .` — 确认零残留
+3. `pytest -x --tb=short` — 首次失败即停
+
+**阻断规则**：任一环节失败 → 立即修复 → 重新验证 → 全部通过才可提交。跳过验证的修改视为未完成。
+**附加检查**：`git diff` — 确认无无关改动
 
 ## 反模式（禁止）
 - 跳过分析直接写代码
+- 跳过验证直接提交（最高频质量失败模式之一）
 - 修改核心文件不走 staging
 - System prompt 只有"做什么"没有"不做什么"
 - 工具描述不写参数和返回值格式

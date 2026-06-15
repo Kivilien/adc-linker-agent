@@ -218,8 +218,12 @@ class TestDesignToReportPipeline:
 
         # 极端权重：只看药物相似性
         designer_custom = LinkerDesigner(
-            weights={"blood_stability": 0.0, "lysosome_lability": 0.0,
-                     "drug_likeness": 1.0, "synthetic": 0.0}
+            weights={
+                "blood_stability": 0.0,
+                "lysosome_lability": 0.0,
+                "drug_likeness": 1.0,
+                "synthetic": 0.0,
+            }
         )
         result_custom = designer_custom.design(request)
 
@@ -299,8 +303,8 @@ class TestMultiAgentGraphStructure:
         assert len(PH_TOOLS) == 2
 
     def test_linker_agent_has_all_tools(self):
-        """LinkerAgent 应有全工具集（9 个）"""
-        assert len(LINKER_TOOLS) == 9
+        """LinkerAgent 应有全工具集（含 PubChem 搜索）"""
+        assert len(LINKER_TOOLS) == 10
 
     def test_specialists_not_overlapping_tools(self):
         """
@@ -327,10 +331,12 @@ class TestLiteratureIntegration:
         """文献搜索应返回论文列表（需要网络）"""
         from adc_linker_agent.agent.tools import search_literature
 
-        result = search_literature.invoke({
-            "query": "Val-Cit-PABC ADC linker",
-            "max_results": 3,
-        })
+        result = search_literature.invoke(
+            {
+                "query": "Val-Cit-PABC ADC linker",
+                "max_results": 3,
+            }
+        )
 
         # 即使无网络也应返回结构化结果（包含 error 字段或 papers 列表）
         assert isinstance(result, dict)
@@ -342,10 +348,12 @@ class TestLiteratureIntegration:
         """文献搜索返回结果应有正确的字段结构"""
         from adc_linker_agent.agent.tools import search_literature
 
-        result = search_literature.invoke({
-            "query": "antibody drug conjugate linker cleavage",
-            "max_results": 3,
-        })
+        result = search_literature.invoke(
+            {
+                "query": "antibody drug conjugate linker cleavage",
+                "max_results": 3,
+            }
+        )
 
         assert isinstance(result, dict)
         # 至少有 query 字段
