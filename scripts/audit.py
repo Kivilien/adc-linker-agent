@@ -73,16 +73,19 @@ def analyze_feedback(since: datetime | None = None) -> list[dict]:
 
     for cat, count in categories.most_common():
         sample_comments = [
-            e.get("comment", "") for e in down_votes
+            e.get("comment", "")
+            for e in down_votes
             if e.get("category") == cat and e.get("comment")
         ][:3]
-        issues.append({
-            "source": "feedback",
-            "category": cat,
-            "count": count,
-            "pct": round(count / len(entries) * 100, 1),
-            "sample_comments": sample_comments,
-        })
+        issues.append(
+            {
+                "source": "feedback",
+                "category": cat,
+                "count": count,
+                "pct": round(count / len(entries) * 100, 1),
+                "sample_comments": sample_comments,
+            }
+        )
 
     return issues
 
@@ -98,13 +101,15 @@ def analyze_errors(since: datetime | None = None) -> list[dict]:
 
     # 按 IP 聚合
     by_ip = Counter(e.get("client_ip", "?") for e in errors)
-    return [{
-        "source": "audit",
-        "total_requests": len(entries),
-        "error_count": len(errors),
-        "error_rate": round(len(errors) / len(entries) * 100, 1),
-        "top_ips": by_ip.most_common(3),
-    }]
+    return [
+        {
+            "source": "audit",
+            "total_requests": len(entries),
+            "error_count": len(errors),
+            "error_rate": round(len(errors) / len(entries) * 100, 1),
+            "top_ips": by_ip.most_common(3),
+        }
+    ]
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -117,7 +122,9 @@ def _run_grep(pattern: str, path: str = ".") -> int:
     try:
         result = subprocess.run(
             ["grep", "-r", "--include=*.py", "-l", pattern, str(PROJECT_ROOT / path)],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         lines = result.stdout.strip().split("\n")
         return len([line for line in lines if line])
@@ -140,16 +147,19 @@ def scan_config_drift() -> list[dict]:
         return findings
     config_code = config_file.read_text()
     import re
+
     env_vars = re.findall(r'os\.getenv\("([^"]+)"', config_code)
     for var in env_vars:
         # 检查在非 config.py 代码中是否有引用
         refs = _run_grep(f"config\\.{var.lower()}", "adc_linker_agent")
         if refs <= 1:  # 只有 config.py 自身引用
-            findings.append({
-                "pattern": "config_drift",
-                "severity": "low",
-                "detail": f"环境变量 {var} 在配置中定义但代码中仅 {refs} 处引用",
-            })
+            findings.append(
+                {
+                    "pattern": "config_drift",
+                    "severity": "low",
+                    "detail": f"环境变量 {var} 在配置中定义但代码中仅 {refs} 处引用",
+                }
+            )
     return findings
 
 
@@ -159,31 +169,36 @@ def scan_registration_gaps() -> list[dict]:
     # 比较 agent/tools.py 和 mcp_tools/server.py 的工具数
     try:
         from adc_linker_agent.agent.tools import ALL_TOOLS
+
         agent_count = len(ALL_TOOLS)
     except ImportError:
         agent_count = -1
     try:
         # 检查 mcp_tools 模块的工具函数数
         import adc_linker_agent.mcp_tools.server as mcp_server
+
         mcp_funcs = [
-            name for name in dir(mcp_server)
-            if name.startswith("_")
-            and callable(getattr(mcp_server, name, None))
+            name
+            for name in dir(mcp_server)
+            if name.startswith("_") and callable(getattr(mcp_server, name, None))
         ]
         mcp_count = len(mcp_funcs)
     except ImportError:
         mcp_count = -1
 
     if agent_count > 0 and mcp_count > 0 and agent_count != mcp_count:
-        findings.append({
-            "pattern": "registration_gap",
-            "severity": "high",
-            "detail": f"Agent 工具数 ({agent_count}) ≠ MCP 工具数 ({mcp_count})",
-        })
+        findings.append(
+            {
+                "pattern": "registration_gap",
+                "severity": "high",
+                "detail": f"Agent 工具数 ({agent_count}) ≠ MCP 工具数 ({mcp_count})",
+            }
+        )
 
     # 检查 domain/__init__.py 导出完整性
     try:
         import adc_linker_agent.domain as domain_mod
+
         public = [n for n in dir(domain_mod) if not n.startswith("_")]
         src_files = list((PROJECT_ROOT / "adc_linker_agent" / "domain").glob("*.py"))
         expected = set()
@@ -193,15 +208,18 @@ def scan_registration_gaps() -> list[dict]:
             code = f.read_text()
             # 找到所有 def/class 顶层定义
             import re
+
             names = re.findall(r"^(?:def|class)\s+(\w+)", code, re.MULTILINE)
             expected.update(n for n in names if not n.startswith("_"))
         missing = expected - set(public)
         if missing:
-            findings.append({
-                "pattern": "registration_gap",
-                "severity": "medium",
-                "detail": f"domain/__init__.py 缺少导出: {', '.join(sorted(missing))}",
-            })
+            findings.append(
+                {
+                    "pattern": "registration_gap",
+                    "severity": "medium",
+                    "detail": f"domain/__init__.py 缺少导出: {', '.join(sorted(missing))}",
+                }
+            )
     except ImportError:
         pass
 
@@ -214,20 +232,22 @@ def scan_dead_code() -> list[dict]:
     try:
         result = subprocess.run(
             ["vulture", str(PROJECT_ROOT / "adc_linker_agent"), "--min-confidence", "80"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
-        lines = [
-            ln.strip() for ln in result.stdout.split("\n") if ln.strip()
-        ]
+        lines = [ln.strip() for ln in result.stdout.split("\n") if ln.strip()]
         # 过滤误报：__init__.py 导出、测试相关
         for line in lines[:10]:
             if "test_" in line or "conftest" in line:
                 continue
-            findings.append({
-                "pattern": "dead_code",
-                "severity": "low",
-                "detail": line[:200],
-            })
+            findings.append(
+                {
+                    "pattern": "dead_code",
+                    "severity": "low",
+                    "detail": line[:200],
+                }
+            )
     except (subprocess.TimeoutExpired, FileNotFoundError):
         # vulture not installed — skip
         pass
@@ -239,6 +259,7 @@ def scan_doc_drift() -> list[dict]:
     findings = []
     try:
         from adc_linker_agent.agent.tools import ALL_TOOLS
+
         tool_count = len(ALL_TOOLS)
     except ImportError:
         tool_count = 0
@@ -247,15 +268,18 @@ def scan_doc_drift() -> list[dict]:
     if readme.exists():
         text = readme.read_text()
         import re
+
         # 查找 README 中的工具数字
         tool_mentions = re.findall(r"(\d+)\s*(?:个?工具|tools)", text, re.IGNORECASE)
         for num_str in tool_mentions:
             if int(num_str) != tool_count and tool_count > 0:
-                findings.append({
-                    "pattern": "doc_drift",
-                    "severity": "low",
-                    "detail": f"README 声称 {num_str} 个工具，实际为 {tool_count}",
-                })
+                findings.append(
+                    {
+                        "pattern": "doc_drift",
+                        "severity": "low",
+                        "detail": f"README 声称 {num_str} 个工具，实际为 {tool_count}",
+                    }
+                )
 
     # 版本号检查
     with contextlib.suppress(ImportError):
@@ -266,11 +290,13 @@ def scan_doc_drift() -> list[dict]:
             text = path.read_text()
             versions = set(re.findall(r"v(\d+\.\d+\.\d+)", text))
             if len(versions) > 1:
-                findings.append({
-                    "pattern": "doc_drift",
-                    "severity": "low",
-                    "detail": f"{path.name} 包含多个版本号: {versions}",
-                })
+                findings.append(
+                    {
+                        "pattern": "doc_drift",
+                        "severity": "low",
+                        "detail": f"{path.name} 包含多个版本号: {versions}",
+                    }
+                )
 
     return findings
 
@@ -284,9 +310,11 @@ def scan_error_swallowing() -> list[dict]:
         code = py_file.read_text()
         # 简单启发式: except Exception 后紧跟 pass 或无 log/raise
         import re
+
         blocks = re.findall(
             r"except\s+(?:Exception|BaseException)(?:\s+as\s+\w+)?\s*:(.*?)(?=\n\S|\Z)",
-            code, re.DOTALL,
+            code,
+            re.DOTALL,
         )
         for block in blocks:
             block_stripped = block.strip()
@@ -296,11 +324,15 @@ def scan_error_swallowing() -> list[dict]:
                 and "audit" not in block_stripped
                 and "error" not in block_stripped.lower()
             ):
-                findings.append({
-                    "pattern": "error_swallowing",
-                    "severity": "medium",
-                    "detail": f"{py_file.relative_to(PROJECT_ROOT)}: except Exception 无错误记录",
-                })
+                findings.append(
+                    {
+                        "pattern": "error_swallowing",
+                        "severity": "medium",
+                        "detail": (
+                            f"{py_file.relative_to(PROJECT_ROOT)}: except Exception 无错误记录"
+                        ),
+                    }
+                )
     return findings
 
 
@@ -315,11 +347,13 @@ def scan_unbounded_growth() -> list[dict]:
         if "defaultdict" in code or "cache" in code.lower() or "store" in code.lower():
             has_ttl = "TTL" in code or "ttl" in code or "lru_cache" in code or "expire" in code
             if not has_ttl and "class" in code:
-                findings.append({
-                    "pattern": "unbounded_growth",
-                    "severity": "low",
-                    "detail": f"{py_file.relative_to(PROJECT_ROOT)}: 缓存结构可能缺少 TTL",
-                })
+                findings.append(
+                    {
+                        "pattern": "unbounded_growth",
+                        "severity": "low",
+                        "detail": f"{py_file.relative_to(PROJECT_ROOT)}: 缓存结构可能缺少 TTL",
+                    }
+                )
     return findings
 
 
@@ -331,17 +365,20 @@ def scan_dependency_bounds() -> list[dict]:
         return findings
     content = pyproject.read_text()
     import re
+
     deps = re.findall(r'"([^"]+)>=([^"]+)"', content)
     for dep, version in deps:
         if "<" not in dep and ">" not in dep.replace(">=", ""):
             # 已经处理过了，检查是否有上界
             full_match = re.search(rf'"{dep}>=[^"]*"', content)
             if full_match and "<" not in full_match.group():
-                findings.append({
-                    "pattern": "dependency_bounds",
-                    "severity": "medium",
-                    "detail": f"{dep} 缺少上界约束（当前 >= {version}）",
-                })
+                findings.append(
+                    {
+                        "pattern": "dependency_bounds",
+                        "severity": "medium",
+                        "detail": f"{dep} 缺少上界约束（当前 >= {version}）",
+                    }
+                )
     return findings
 
 
@@ -351,27 +388,159 @@ def scan_api_leakage() -> list[dict]:
     routes = PROJECT_ROOT / "adc_linker_agent" / "api" / "routes.py"
     if routes.exists():
         code = routes.read_text()
-        if 'detail=str(e)' in code:
-            findings.append({
-                "pattern": "api_leakage",
-                "severity": "high",
-                "detail": "routes.py: HTTPException 使用 str(e) 可能泄漏内部信息",
-            })
+        if "detail=str(e)" in code:
+            findings.append(
+                {
+                    "pattern": "api_leakage",
+                    "severity": "high",
+                    "detail": "routes.py: HTTPException 使用 str(e) 可能泄漏内部信息",
+                }
+            )
         # 同时检查是否仍有 500 使用了 str(e)
-        if 'status_code=500' in code and 'raise HTTPException' in code:
+        if "status_code=500" in code and "raise HTTPException" in code:
             # 验证是否有 str(e) 在旁边
             import re
+
             blocks = re.findall(
-                r'raise HTTPException\([^)]+500[^)]+\)',
-                code, re.DOTALL,
+                r"raise HTTPException\([^)]+500[^)]+\)",
+                code,
+                re.DOTALL,
             )
             for block in blocks:
                 if "str(e)" in block:
-                    findings.append({
-                        "pattern": "api_leakage",
-                        "severity": "high",
-                        "detail": f"routes.py: 500 错误仍使用 str(e): {block[:100]}",
-                    })
+                    findings.append(
+                        {
+                            "pattern": "api_leakage",
+                            "severity": "high",
+                            "detail": f"routes.py: 500 错误仍使用 str(e): {block[:100]}",
+                        }
+                    )
+    return findings
+
+
+# ═══════════════════════════════════════════════════════════════
+# v1.2: 顾问系统扫描
+# ═══════════════════════════════════════════════════════════════
+
+ADVISORS_DIR = Path.home() / ".claude" / "advisors"
+
+
+def scan_advisor_knowledge_staleness() -> list[dict]:
+    """模式 9: 顾问知识新鲜度 — memory.md 超过 30 天未更新。"""
+    findings = []
+    if not ADVISORS_DIR.exists():
+        return findings
+    cutoff = datetime.now(UTC) - timedelta(days=30)
+    for advisor_dir in ADVISORS_DIR.iterdir():
+        if not advisor_dir.is_dir():
+            continue
+        memory_file = advisor_dir / "memory.md"
+        if not memory_file.exists():
+            findings.append(
+                {
+                    "pattern": "advisor_knowledge_staleness",
+                    "severity": "low",
+                    "detail": f"顾问 {advisor_dir.name}: memory.md 不存在",
+                }
+            )
+            continue
+        mtime = datetime.fromtimestamp(memory_file.stat().st_mtime, tz=UTC)
+        if mtime < cutoff:
+            days_stale = (datetime.now(UTC) - mtime).days
+            findings.append(
+                {
+                    "pattern": "advisor_knowledge_staleness",
+                    "severity": "medium",
+                    "detail": f"顾问 {advisor_dir.name}: memory.md {days_stale} 天未更新",
+                }
+            )
+        # 检查 web-sources.md
+        web_sources = advisor_dir / "web-sources.md"
+        if web_sources.exists():
+            ws_mtime = datetime.fromtimestamp(web_sources.stat().st_mtime, tz=UTC)
+            if ws_mtime < cutoff:
+                days_stale = (datetime.now(UTC) - ws_mtime).days
+                findings.append(
+                    {
+                        "pattern": "advisor_knowledge_staleness",
+                        "severity": "low",
+                        "detail": f"顾问 {advisor_dir.name}: web-sources.md {days_stale} 天未更新",
+                    }
+                )
+    return findings
+
+
+def scan_advisor_prompt_drift() -> list[dict]:
+    """模式 10: 顾问 prompt 漂移 — agent 定义与知识库不一致。"""
+    findings = []
+    agents_dir = Path.home() / ".claude" / "agents"
+    advisor_agents = ["technical-advisor.md", "ui-design-advisor.md", "competitor-power-user.md"]
+    for agent_file in advisor_agents:
+        agent_path = agents_dir / agent_file
+        if not agent_path.exists():
+            findings.append(
+                {
+                    "pattern": "advisor_prompt_drift",
+                    "severity": "high",
+                    "detail": f"顾问 agent 定义缺失: {agent_file}",
+                }
+            )
+            continue
+        agent_content = agent_path.read_text()
+        name = agent_file.replace(".md", "")
+        memory_path = ADVISORS_DIR / name / "memory.md"
+        if not memory_path.exists():
+            findings.append(
+                {
+                    "pattern": "advisor_prompt_drift",
+                    "severity": "medium",
+                    "detail": f"顾问 {name}: agent 定义存在但 memory.md 缺失",
+                }
+            )
+            continue
+        # 检查 agent 定义中引用的路径是否与实际一致
+        if f"advisors/{name}/memory.md" not in agent_content:
+            findings.append(
+                {
+                    "pattern": "advisor_prompt_drift",
+                    "severity": "low",
+                    "detail": f"顾问 {name}: agent 定义中可能缺少正确的 memory 路径引用",
+                }
+            )
+    return findings
+
+
+def scan_skill_rot() -> list[dict]:
+    """模式 11: skill 腐烂 — 导入的 skill 30 天未使用或源仓库已归档。"""
+    findings = []
+    registry_path = Path.home() / ".agents" / "skills" / "imported" / "registry.yaml"
+    if not registry_path.exists():
+        return findings
+    try:
+        import yaml
+
+        with open(registry_path) as f:
+            registry = yaml.safe_load(f)
+    except Exception:
+        return findings
+    if not registry or "skills" not in registry:
+        return findings
+    for skill in registry["skills"]:
+        last_used = skill.get("last_used")
+        if last_used:
+            try:
+                used_date = datetime.fromisoformat(str(last_used))
+                days_unused = (datetime.now(UTC) - used_date).days
+                if days_unused > 30:
+                    findings.append(
+                        {
+                            "pattern": "skill_rot",
+                            "severity": "low",
+                            "detail": f"Skill {skill['name']}: {days_unused} 天未使用，建议归档",
+                        }
+                    )
+            except (ValueError, TypeError):
+                pass
     return findings
 
 
@@ -384,6 +553,9 @@ SCANNERS = [
     ("unbounded_growth", scan_unbounded_growth),
     ("dependency_bounds", scan_dependency_bounds),
     ("api_leakage", scan_api_leakage),
+    ("advisor_knowledge_staleness", scan_advisor_knowledge_staleness),
+    ("advisor_prompt_drift", scan_advisor_prompt_drift),
+    ("skill_rot", scan_skill_rot),
 ]
 
 
@@ -424,8 +596,7 @@ def format_report(findings: list[dict], feedback: list[dict], errors: list[dict]
         lines.append("## API 错误")
         for e in errors:
             lines.append(
-                f"- 请求: {e['total_requests']}, "
-                f"错误: {e['error_count']} ({e['error_rate']}%)"
+                f"- 请求: {e['total_requests']}, 错误: {e['error_count']} ({e['error_rate']}%)"
             )
         lines.append("")
 
@@ -471,11 +642,13 @@ def main():
             findings = scanner()
             all_findings.extend(findings)
         except Exception as exc:
-            all_findings.append({
-                "pattern": name,
-                "severity": "low",
-                "detail": f"Scanner {name} 执行失败: {exc}",
-            })
+            all_findings.append(
+                {
+                    "pattern": name,
+                    "severity": "low",
+                    "detail": f"Scanner {name} 执行失败: {exc}",
+                }
+            )
 
     sorted_findings = priority(all_findings)
 

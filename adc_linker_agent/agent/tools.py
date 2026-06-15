@@ -339,6 +339,35 @@ def search_literature(query: str, max_results: int = 5) -> dict:
         return {"error": str(e), "query": query, "papers": []}
 
 
+@tool
+def search_pubchem_linkers_tool(
+    query_type: str,
+    query_value: str,
+    max_results: int = 20,
+) -> dict:
+    """
+    Search PubChem for ADC linker-related compounds.
+
+    Use this tool when:
+    - Finding novel linker structures from PubChem's database
+    - Searching compounds by substructure (SMILES)
+    - Searching compounds by name
+    - Looking up compound properties by CID
+
+    Args:
+        query_type: Search type — "substructure" (SMILES), "name", or "property" (CIDs)
+        query_value: SMILES string, compound name, or comma-separated CIDs
+        max_results: Max results to return (default 20)
+    """
+    from adc_linker_agent.mcp_tools.tool_pubchem import search_pubchem_linkers
+
+    return search_pubchem_linkers(
+        query_type=query_type,
+        query_value=query_value,
+        max_results=max_results,
+    )
+
+
 # ─── 工具列表 ───
 # 这是 Agent 的"工具箱"——ChatAnthropic.bind_tools(ALL_TOOLS)
 
@@ -352,4 +381,5 @@ ALL_TOOLS = [
     search_linker_scaffolds,
     design_linker,
     search_literature,
+    search_pubchem_linkers_tool,
 ]
