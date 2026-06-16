@@ -28,25 +28,23 @@ def render_property_table(properties: dict):
 
     with col1:
         st.metric("分子量 (MW)", f"{properties.get('molecular_weight', 'N/A')} Da")
-        st.metric("LogP (亲脂性)", f"{properties.get('logp', 'N/A')}",
-                  help="1-3 理想，>5 太亲油")
-        st.metric("QED (药物相似性)", f"{properties.get('qed', 'N/A')}",
-                  help=">0.5 药物样，<0.3 需优化")
-        st.metric("SAS (合成难度)", f"{properties.get('sas', 'N/A')}",
-                  help="<4 容易合成，>6 复杂昂贵")
+        st.metric("LogP (亲脂性)", f"{properties.get('logp', 'N/A')}", help="1-3 理想，>5 太亲油")
+        st.metric(
+            "QED (药物相似性)", f"{properties.get('qed', 'N/A')}", help=">0.5 药物样，<0.3 需优化"
+        )
+        st.metric(
+            "SAS (合成难度)", f"{properties.get('sas', 'N/A')}", help="<4 容易合成，>6 复杂昂贵"
+        )
 
     with col2:
-        st.metric("TPSA (极性表面积)", f"{properties.get('tpsa', 'N/A')} Å²",
-                  help="80-140 理想")
-        st.metric("氢键供体 (HBD)", f"{properties.get('hbd', 'N/A')}",
-                  help="<5 (Lipinski)")
-        st.metric("氢键受体 (HBA)", f"{properties.get('hba', 'N/A')}",
-                  help="<10 (Lipinski)")
+        st.metric("TPSA (极性表面积)", f"{properties.get('tpsa', 'N/A')} Å²", help="80-140 理想")
+        st.metric("氢键供体 (HBD)", f"{properties.get('hbd', 'N/A')}", help="<5 (Lipinski)")
+        st.metric("氢键受体 (HBA)", f"{properties.get('hba', 'N/A')}", help="<10 (Lipinski)")
         st.metric("可旋转键", f"{properties.get('rotatable_bonds', 'N/A')}")
 
     # QED 进度条
     qed = properties.get("qed", 0)
-    if isinstance(qed, (int, float)):
+    if isinstance(qed, int | float):
         st.progress(
             min(qed, 1.0),
             text=f"QED Score: {qed:.3f} {'✅ 药物样' if qed >= 0.5 else '⚠️ 需优化'}",
@@ -94,8 +92,7 @@ def render_tool_call(
     """
     if compact:
         arg_preview = ", ".join(
-            f"{k}={json.dumps(v, ensure_ascii=False)}"
-            for k, v in list(args.items())[:3]
+            f"{k}={json.dumps(v, ensure_ascii=False)}" for k, v in list(args.items())[:3]
         )
         st.caption(f"🔹 **{name}**({arg_preview[:80]})")
     else:
@@ -238,6 +235,7 @@ def render_sidebar():
         st.title("⚙️ 配置")
 
         from adc_linker_agent.utils.config import get_config
+
         config = get_config()
 
         mode = st.radio(
@@ -257,7 +255,10 @@ def render_sidebar():
             st.caption("**Quick Design 参数**")
             st.slider(
                 "目标 pH",
-                min_value=0.0, max_value=14.0, value=5.0, step=0.1,
+                min_value=0.0,
+                max_value=14.0,
+                value=5.0,
+                step=0.1,
                 help="期望裂解 pH (5.0=溶酶体, 5.5=晚期内体, 6.0=早期内体, 7.4=血液)",
                 key="quick_ph",
             )
@@ -291,10 +292,20 @@ def render_sidebar():
 
         st.divider()
 
-        # ─── 主题切换提示 ───
-        st.caption("🌓 主题: 右上角 **⋮ → Settings → Theme** 切换深色/浅色")
+        # ─── 主题切换 ───
+        if "_dark_mode" not in st.session_state:
+            st.session_state._dark_mode = True
 
-        st.caption("ADC Linker Agent v1.1.0 | 342 tests passing")
+        dark_mode = st.toggle(
+            "🌙 Dark Mode",
+            value=st.session_state._dark_mode,
+            help="切换深色/浅色主题",
+        )
+        if dark_mode != st.session_state._dark_mode:
+            st.session_state._dark_mode = dark_mode
+            st.rerun()
+
+        st.caption("ADC Linker Agent v1.1.0 | 362 tests passing")
 
     return mode
 
@@ -335,13 +346,18 @@ def render_design_report(report):
     st.divider()
 
     # ─── 导出按钮 + 3D 切换 ───
-    export_col1, export_col2, _ = st.columns([1, 1, 8])
+    export_col1, export_col2, export_col3, _ = st.columns([1, 1, 1, 7])
 
     with export_col1:
-        if st.button("🌐 HTML Slides", help="下载精美 HTML 幻灯片（浏览器直接演示）",
-                     key="export_html", use_container_width=True):
+        if st.button(
+            "🌐 HTML",
+            help="下载 HTML 幻灯片（浏览器直接演示）",
+            key="export_html",
+            use_container_width=True,
+        ):
             with st.spinner("生成 HTML 幻灯片..."):
                 from adc_linker_agent.ui.export import generate_html_slides
+
                 html_bytes = generate_html_slides(report)
                 if html_bytes:
                     ts = report.generated_at.replace(" ", "_").replace(":", "-")
@@ -356,10 +372,30 @@ def render_design_report(report):
                     st.warning("需要 Jinja2: `pip install Jinja2`")
 
     with export_col2:
-        if st.button("📊 PPTX", help="下载可编辑 PowerPoint",
-                     key="export_pptx", use_container_width=True):
+        if st.button("📄 PDF", help="下载 PDF 报告", key="export_pdf", use_container_width=True):
+            with st.spinner("生成 PDF..."):
+                from adc_linker_agent.ui.export import generate_pdf
+
+                pdf_bytes = generate_pdf(report)
+                if pdf_bytes:
+                    ts = report.generated_at.replace(" ", "_").replace(":", "-")
+                    st.download_button(
+                        label="⬇️ 下载 PDF",
+                        data=pdf_bytes,
+                        file_name=f"adc_report_{ts}.pdf",
+                        mime="application/pdf",
+                        key="dl_pdf",
+                    )
+                else:
+                    st.warning("需要 reportlab: `pip install reportlab`")
+
+    with export_col3:
+        if st.button(
+            "📊 PPTX", help="下载可编辑 PowerPoint", key="export_pptx", use_container_width=True
+        ):
             with st.spinner("生成 PPTX..."):
                 from adc_linker_agent.ui.export import generate_pptx
+
                 pptx_bytes = generate_pptx(report)
                 if pptx_bytes:
                     ts = report.generated_at.replace(" ", "_").replace(":", "-")
@@ -394,18 +430,20 @@ def render_design_report(report):
         blood = "✅" if c.blood_stable else "🔴"
         lyso = "✅" if c.lysosome_labile else "—"
         tox = f"🚨 {c.toxicity_count}" if c.has_toxicity_alerts else "✅"
-        table_data.append({
-            "排名": c.rank,
-            "名称": c.name,
-            "机制": c.mechanism_label,
-            "综合分": f"{c.overall_score:.3f}",
-            "血液": blood,
-            "溶酶体": lyso,
-            "QED": f"{c.qed:.3f}",
-            "LogP": c.logp,
-            "SAS": c.sas,
-            "毒性": tox,
-        })
+        table_data.append(
+            {
+                "排名": c.rank,
+                "名称": c.name,
+                "机制": c.mechanism_label,
+                "综合分": f"{c.overall_score:.3f}",
+                "血液": blood,
+                "溶酶体": lyso,
+                "QED": f"{c.qed:.3f}",
+                "LogP": c.logp,
+                "SAS": c.sas,
+                "毒性": tox,
+            }
+        )
 
     st.dataframe(table_data, use_container_width=True, hide_index=True)
 
@@ -469,6 +507,7 @@ def _render_candidate_card(card: dict):
         # 结构式图片（支持 2D/3D 切换）
         if st.session_state.get("use_3d_viz", False):
             from adc_linker_agent.ui.renderers import render_molecule_3d
+
             html_3d = render_molecule_3d(smiles)
             if html_3d:
                 st.components.v1.html(html_3d, height=400, scrolling=False)

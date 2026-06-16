@@ -47,11 +47,11 @@ ruff check . --fix && ruff check . && pytest -x --tb=short
 - System prompt 只有"做什么"没有"不做什么"
 - 工具描述不写参数和返回值格式
 
-## 项目状态 (2026-06-13)
+## 项目状态 (2026-06-16)
 
 **架构 v2 完成** — 指标:
-- 测试: 323 passed
-- 工具: 9 个 (含毒性检测 + 文献搜索)
+- 测试: 362 passed
+- 工具: 10 个 (含毒性检测 + 文献搜索 + PubChem)
 - 专长 Agent: 4 个 (Property + PH + Linker + Literature)
 - 报告: 结构化 DesignReport (纯数据聚合，不依赖 LLM)
 - 流式执行: `stream_mode="values"` 替代 `astream_events`，捕获完整状态更新

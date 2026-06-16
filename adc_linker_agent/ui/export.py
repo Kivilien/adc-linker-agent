@@ -1,8 +1,9 @@
 """
 ADC Linker 设计报告导出模块。
 
-支持两种格式:
+支持三种格式:
   - HTML 幻灯片 (主推): Jinja2 模板 + Nord 主题，浏览器直接演示
+  - PDF: reportlab 多页文档
   - PPTX: python-pptx 可编辑演示文稿
 
 所有函数均接受 DesignReport 对象，返回 bytes | None。
@@ -36,6 +37,7 @@ def _get_2d_image_b64(smiles: str, size: tuple[int, int] = (400, 250)) -> str:
 def _get_2d_image_bytes(smiles: str, size: tuple[int, int] = (300, 180)) -> bytes | None:
     """生成 2D 分子结构图 PNG bytes。"""
     from adc_linker_agent.domain.molecule import render_molecule_image
+
     return render_molecule_image(smiles, size=size)
 
 
@@ -156,7 +158,7 @@ def _build_overview_slide(report: Any) -> str:
 def _build_table_slide(report: Any) -> str:
     """候选对比表幻灯片。"""
     rows = ""
-    for c in (report.candidates or []):
+    for c in report.candidates or []:
         blood = "✓" if c.blood_stable else "✗"
         lyso = "✓" if c.lysosome_labile else "—"
         tox = f"⚠ {c.toxicity_count}" if c.has_toxicity_alerts else "✓"
@@ -238,11 +240,11 @@ def _build_candidate_slide(card: dict) -> str:
     lyso_labile = ph.get("lysosome_labile", False)
     ph_html = f"""\
     <div style="margin-top:12px;">
-      <span class="tag {'tag-ok' if blood_stable else 'tag-danger'}">
-        {'✓ 血液 pH 7.4 稳定' if blood_stable else '✗ 血液 pH 7.4 不稳定'}
+      <span class="tag {"tag-ok" if blood_stable else "tag-danger"}">
+        {"✓ 血液 pH 7.4 稳定" if blood_stable else "✗ 血液 pH 7.4 不稳定"}
       </span>
-      <span class="tag {'tag-ok' if lyso_labile else 'tag-warn'}">
-        {'✓ 溶酶体 pH 5.0 可裂解' if lyso_labile else '— 溶酶体裂解不充分'}
+      <span class="tag {"tag-ok" if lyso_labile else "tag-warn"}">
+        {"✓ 溶酶体 pH 5.0 可裂解" if lyso_labile else "— 溶酶体裂解不充分"}
       </span>
     </div>"""
 
@@ -255,13 +257,13 @@ def _build_candidate_slide(card: dict) -> str:
             for s in strengths:
                 sw_html += f"<li>{s}</li>"
             sw_html += "</ul>"
-        sw_html += '</div><div>'
+        sw_html += "</div><div>"
         if weaknesses:
             sw_html += '<h3>⚠️ 不足</h3><ul class="sw-list">'
             for w in weaknesses:
                 sw_html += f"<li>{w}</li>"
             sw_html += "</ul>"
-        sw_html += '</div></div>'
+        sw_html += "</div></div>"
 
     # 推荐理由
     rec_html = ""
@@ -303,17 +305,14 @@ def _build_toxicity_slide(report: Any) -> str:
         warnings_html = '<div style="margin-top:20px;"><h3>⚠️ 警告</h3><ul class="sw-list">'
         for w in report.warnings:
             warnings_html += f'<li style="color:var(--warning);">{w}</li>'
-        warnings_html += '</ul></div>'
+        warnings_html += "</ul></div>"
 
     failed_html = ""
     if report.failed_scaffolds:
         failed_html = '<div style="margin-top:20px;"><h3>评估失败的骨架</h3><ul class="sw-list">'
         for f in report.failed_scaffolds[:10]:
-            failed_html += (
-                f"<li>{f.get('name', '?')}: "
-                f"{f.get('error', 'Unknown error')}</li>"
-            )
-        failed_html += '</ul></div>'
+            failed_html += f"<li>{f.get('name', '?')}: {f.get('error', 'Unknown error')}</li>"
+        failed_html += "</ul></div>"
 
     return textwrap.dedent(f"""\
     <h2>安全性评估</h2>
@@ -415,12 +414,21 @@ def generate_pptx(report: Any) -> bytes | None:
     _add_title(sl, "ADC Linker Design Report", top=1.5, size=40)
     _add_text(sl, f"Generated: {report.generated_at}", 1, 3, 11, 0.5, size=16, color=gray)
     _add_text(sl, f"Request: {report.request_summary}", 1, 3.8, 11, 0.5, size=16)
-    _add_text(sl, (
-        f"Candidates: {report.total_evaluated} evaluated, "
-        f"{report.total_filtered} filtered, "
-        f"{report.candidate_count} final | "
-        f"Toxicity: {'Alerts' if report.has_any_toxicity else 'Pass'}"
-    ), 1, 5, 11, 1, size=14, color=gray)
+    _add_text(
+        sl,
+        (
+            f"Candidates: {report.total_evaluated} evaluated, "
+            f"{report.total_filtered} filtered, "
+            f"{report.candidate_count} final | "
+            f"Toxicity: {'Alerts' if report.has_any_toxicity else 'Pass'}"
+        ),
+        1,
+        5,
+        11,
+        1,
+        size=14,
+        color=gray,
+    )
 
     # ─── Slide 2: Candidate Table ───
     sl2 = prs.slides.add_slide(prs.slide_layouts[6])
@@ -446,8 +454,15 @@ def generate_pptx(report: Any) -> bytes | None:
                 p.font.bold = True
 
         for ri, c in enumerate(report.candidates, 1):
-            vals = [str(c.rank), c.name, c.mechanism,
-                    f"{c.overall_score:.3f}", f"{c.qed:.3f}", str(c.logp), str(c.sas)]
+            vals = [
+                str(c.rank),
+                c.name,
+                c.mechanism,
+                f"{c.overall_score:.3f}",
+                f"{c.qed:.3f}",
+                str(c.logp),
+                str(c.sas),
+            ]
             for ci, v in enumerate(vals):
                 cell = tbl.cell(ri, ci)
                 cell.text = v
@@ -476,7 +491,10 @@ def generate_pptx(report: Any) -> bytes | None:
         img_bytes = _get_2d_image_bytes(smiles)
         if img_bytes:
             from io import BytesIO
-            sl.shapes.add_picture(BytesIO(img_bytes), Inches(1), Inches(2.5), Inches(4), Inches(2.5))
+
+            sl.shapes.add_picture(
+                BytesIO(img_bytes), Inches(1), Inches(2.5), Inches(4), Inches(2.5)
+            )
 
         # Scores
         score_items = [
@@ -492,9 +510,13 @@ def generate_pptx(report: Any) -> bytes | None:
 
         # Strengths/Weaknesses
         if strengths:
-            _add_text(sl, f"Strengths: {'; '.join(strengths[:3])}", 6, 3.8, 6, 1, size=11, color=green)
+            _add_text(
+                sl, f"Strengths: {'; '.join(strengths[:3])}", 6, 3.8, 6, 1, size=11, color=green
+            )
         if weaknesses:
-            _add_text(sl, f"Weaknesses: {'; '.join(weaknesses[:3])}", 6, 4.8, 6, 1, size=11, color=red)
+            _add_text(
+                sl, f"Weaknesses: {'; '.join(weaknesses[:3])}", 6, 4.8, 6, 1, size=11, color=red
+            )
 
         # Recommendation
         rec = card.get("recommendation", "")
@@ -514,4 +536,270 @@ def generate_pptx(report: Any) -> bytes | None:
 
     buf = io.BytesIO()
     prs.save(buf)
+    return buf.getvalue()
+
+
+# ═══════════════════════════════════════════════════════════════
+# PDF 导出
+# ═══════════════════════════════════════════════════════════════
+
+
+def generate_pdf(report: Any) -> bytes | None:
+    """
+    生成 Nord 主题多页 PDF 报告。
+
+    结构: 标题页 → 概览指标 → 候选对比表 → Top-3 详细卡片 → 毒性评估
+
+    Args:
+        report: domain.report.DesignReport 实例
+
+    Returns:
+        PDF bytes，或 None（reportlab 未安装）
+    """
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import (
+            PageBreak,
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        )
+    except ImportError:
+        return None
+
+    if report is None:
+        return None
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        rightMargin=20 * mm,
+        leftMargin=20 * mm,
+        topMargin=20 * mm,
+        bottomMargin=20 * mm,
+        title="ADC Linker Design Report",
+        author="ADC Linker Agent",
+    )
+
+    # ─── Nord 配色 ───
+    nord_dark = colors.HexColor("#2E3440")
+    nord_light = colors.HexColor("#ECEFF4")
+    nord_accent = colors.HexColor("#88C0D0")
+    nord_gray = colors.HexColor("#4C566A")
+    nord_green = colors.HexColor("#A3BE8C")
+    nord_red = colors.HexColor("#BF616A")
+    nord_yellow = colors.HexColor("#EBCB8B")
+
+    # ─── 样式 ───
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "NordTitle",
+        parent=styles["Title"],
+        fontSize=22,
+        textColor=nord_accent,
+        spaceAfter=12,
+    )
+    h2_style = ParagraphStyle(
+        "NordH2",
+        parent=styles["Heading2"],
+        fontSize=16,
+        textColor=nord_accent,
+        spaceAfter=8,
+    )
+    h3_style = ParagraphStyle(
+        "NordH3",
+        parent=styles["Heading3"],
+        fontSize=13,
+        textColor=nord_accent,
+        spaceAfter=6,
+    )
+    body_style = ParagraphStyle(
+        "NordBody",
+        parent=styles["Normal"],
+        fontSize=10,
+        textColor=nord_dark,
+        leading=14,
+    )
+    small_style = ParagraphStyle(
+        "NordSmall",
+        parent=styles["Normal"],
+        fontSize=8,
+        textColor=nord_gray,
+    )
+    mono_style = ParagraphStyle(
+        "NordMono",
+        parent=styles["Normal"],
+        fontSize=7,
+        textColor=nord_gray,
+        fontName="Courier",
+    )
+
+    story = []
+
+    def _add_spacer(height=6):
+        story.append(Spacer(1, height * mm))
+
+    # ─── 第 1 页: 标题 ───
+    story.append(Paragraph("ADC 连接子设计报告", title_style))
+    _add_spacer(4)
+    story.append(Paragraph(f"需求: {report.request_summary or 'N/A'}", body_style))
+    story.append(Paragraph(f"生成时间: {report.generated_at or 'N/A'}", small_style))
+    _add_spacer(10)
+
+    # 概览指标表格
+    overview_data = [
+        ["评估候选", "过滤排除", "最终候选", "毒性筛查"],
+        [
+            str(report.total_evaluated),
+            str(report.total_filtered),
+            str(report.candidate_count),
+            "⚠ 警报" if report.has_any_toxicity else "✓ 通过",
+        ],
+    ]
+    overview_table = Table(overview_data, colWidths=[60, 60, 60, 80])
+    overview_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), nord_accent),
+                ("TEXTCOLOR", (0, 0), (-1, 0), nord_light),
+                ("BACKGROUND", (0, 1), (-1, 1), nord_light),
+                ("TEXTCOLOR", (0, 1), (-1, 1), nord_dark),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("FONTSIZE", (0, 0), (-1, -1), 10),
+                ("GRID", (0, 0), (-1, -1), 0.5, nord_gray),
+                ("ROWBACKGROUNDS", (0, 1), (-1, 1), [nord_light]),
+            ]
+        )
+    )
+    story.append(overview_table)
+    story.append(PageBreak())
+
+    # ─── 第 2 页: 候选对比表 ───
+    story.append(Paragraph("候选对比表", h2_style))
+    _add_spacer(4)
+
+    if report.candidates:
+        headers = ["排名", "名称", "机制", "综合分", "QED", "LogP", "SAS", "毒性"]
+        table_data = [headers]
+        for c in report.candidates:
+            tox = f"⚠ {c.toxicity_count}" if c.has_toxicity_alerts else "✓"
+            table_data.append(
+                [
+                    str(c.rank),
+                    c.name,
+                    c.mechanism_label or c.mechanism,
+                    f"{c.overall_score:.3f}",
+                    f"{c.qed:.3f}",
+                    str(c.logp),
+                    str(c.sas),
+                    tox,
+                ]
+            )
+
+        col_widths = [30, 70, 65, 45, 35, 30, 30, 35]
+        cand_table = Table(table_data, colWidths=col_widths)
+        cand_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), nord_dark),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), nord_light),
+                    ("FONTSIZE", (0, 0), (-1, -1), 7),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("ALIGN", (1, 0), (1, -1), "LEFT"),
+                    ("GRID", (0, 0), (-1, -1), 0.3, nord_gray),
+                ]
+            )
+        )
+        story.append(cand_table)
+    else:
+        story.append(Paragraph("无候选数据", body_style))
+
+    story.append(PageBreak())
+
+    # ─── 第 3-5 页: Top-3 详细卡片 ───
+    for card in (report.detailed_cards or [])[:3]:
+        rank = card.get("rank", "?")
+        name = card.get("name", "")
+        smiles = card.get("smiles", "")
+        mechanism = card.get("mechanism_label", card.get("mechanism", ""))
+        scores = card.get("scores", {})
+        strengths = card.get("strengths", [])
+        weaknesses = card.get("weaknesses", [])
+        rec = card.get("recommendation", "")
+
+        rank_emoji = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"#{rank}")
+        story.append(Paragraph(f"{rank_emoji} #{rank} — {name}", h2_style))
+        story.append(Paragraph(f"机制: {mechanism}", body_style))
+        story.append(Paragraph(f"SMILES: {smiles}", mono_style))
+        _add_spacer(4)
+
+        # 分子结构图
+        img_bytes = _get_2d_image_bytes(smiles)
+        if img_bytes:
+            from io import BytesIO as Bio
+
+            from reportlab.platypus import Image
+
+            img = Image(Bio(img_bytes), width=120, height=75)
+            story.append(img)
+            _add_spacer(4)
+
+        # 评分
+        score_items = [
+            ("血液稳定性", scores.get("blood_stability", 0)),
+            ("溶酶体裂解", scores.get("lysosome_lability", 0)),
+            ("药物相似性", scores.get("drug_likeness", 0)),
+            ("合成可行性", scores.get("synthetic", 0)),
+            ("综合分", scores.get("overall", 0)),
+        ]
+        score_text = " | ".join(f"{label}: {val:.2f}" for label, val in score_items)
+        story.append(Paragraph(f"评分: {score_text}", body_style))
+        _add_spacer(4)
+
+        if strengths:
+            story.append(Paragraph(f"✅ 优势: {'; '.join(strengths[:3])}", body_style))
+        if weaknesses:
+            story.append(Paragraph(f"⚠️ 不足: {'; '.join(weaknesses[:3])}", body_style))
+        if rec:
+            story.append(Paragraph(f"💡 推荐: {rec}", body_style))
+
+        story.append(PageBreak())
+
+    # ─── 最后: 毒性评估 ───
+    story.append(Paragraph("安全性评估", h2_style))
+    _add_spacer(4)
+    tox_status = "⚠ 检测到毒性警报" if report.has_any_toxicity else "✓ 未检出已知毒性结构"
+    tox_color = nord_red if report.has_any_toxicity else nord_green
+    story.append(
+        Paragraph(
+            tox_status,
+            ParagraphStyle("ToxStatus", parent=body_style, textColor=tox_color, fontSize=12),
+        )
+    )
+    _add_spacer(4)
+
+    if report.toxicity_summary:
+        story.append(Paragraph(report.toxicity_summary, body_style))
+
+    if report.warnings:
+        _add_spacer(4)
+        story.append(Paragraph("⚠️ 警告:", h3_style))
+        for w in report.warnings:
+            story.append(
+                Paragraph(
+                    f"• {w}", ParagraphStyle("WarnItem", parent=body_style, textColor=nord_yellow)
+                )
+            )
+
+    _add_spacer(10)
+    story.append(Paragraph("⚕ 本报告由 AI 辅助生成，仅供科研参考，不可用于临床决策。", small_style))
+    story.append(Paragraph(f"ADC Linker Agent v1.1.0 — {report.generated_at or ''}", small_style))
+
+    doc.build(story)
     return buf.getvalue()

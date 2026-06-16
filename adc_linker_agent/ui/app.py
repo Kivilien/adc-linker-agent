@@ -48,10 +48,15 @@ SESSION_FILE = Path(__file__).parent.parent.parent / ".streamlit_session.json"
 def _save_session(messages: list[dict], thread_id: str) -> None:
     """保存会话到 JSON 文件，Streamlit 重启后恢复"""
     with contextlib.suppress(Exception):
-        SESSION_FILE.write_text(json.dumps({
-            "messages": messages[-20:],
-            "thread_id": thread_id,
-        }, ensure_ascii=False))
+        SESSION_FILE.write_text(
+            json.dumps(
+                {
+                    "messages": messages[-20:],
+                    "thread_id": thread_id,
+                },
+                ensure_ascii=False,
+            )
+        )
 
 
 def _load_session() -> tuple[list[dict], str]:
@@ -82,9 +87,65 @@ st.set_page_config(
 
 st.title("🧬 ADC 连接子智能设计 Agent")
 st.caption(
-    "Antibody-Drug Conjugate Linker Design Assistant | "
-    "Multi-Agent System | LangGraph + RDKit"
+    "Antibody-Drug Conjugate Linker Design Assistant | Multi-Agent System | LangGraph + RDKit"
 )
+
+# ─── 暗色/浅色主题 CSS ───
+
+if not st.session_state.get("_dark_mode", True):
+    st.markdown(
+        """
+    <style>
+    /* Light mode override — Nord-inspired light palette */
+    .stApp {
+        background-color: #ECEFF4;
+    }
+    .stApp header {
+        background-color: #E5E9F0;
+    }
+    .stChatMessage, .stMarkdown, .stDataFrame {
+        color: #2E3440;
+    }
+    [data-testid="stChatMessage"] {
+        background-color: #D8DEE9;
+        border: 1px solid #81A1C1;
+    }
+    [data-testid="stChatMessage"][data-testid*="user"] {
+        background-color: #E5E9F0;
+    }
+    .stButton > button {
+        background-color: #5E81AC;
+        color: #ECEFF4;
+        border: 1px solid #81A1C1;
+    }
+    .stButton > button:hover {
+        background-color: #81A1C1;
+    }
+    .stMetric {
+        background-color: #D8DEE9;
+        border: 1px solid #81A1C1;
+        border-radius: 8px;
+        padding: 8px;
+    }
+    .stMetric label, .stMetric [data-testid="stMetricValue"] {
+        color: #2E3440 !important;
+    }
+    section[data-testid="stSidebar"] {
+        background-color: #E5E9F0;
+    }
+    section[data-testid="stSidebar"] * {
+        color: #2E3440;
+    }
+    hr, .stDivider {
+        border-color: #81A1C1;
+    }
+    code {
+        color: #BF616A;
+    }
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
 
 # ─── 侧边栏 ───
 
@@ -137,9 +198,7 @@ if st.session_state.get("_pending_restore"):
 
     # 用 container 展示恢复提示
     with st.container(border=True):
-        st.markdown(
-            f"**检测到上次对话**（{len(saved_msgs)} 条消息）"
-        )
+        st.markdown(f"**检测到上次对话**（{len(saved_msgs)} 条消息）")
 
         # 展示最后一条用户消息作为预览
         last_user_msg = ""
@@ -188,6 +247,7 @@ for msg in st.session_state.messages:
             if report:
                 if isinstance(report, dict):
                     from adc_linker_agent.domain.report import DesignReport
+
                     report = DesignReport.from_dict(report)
                 render_design_report(report)
             if lit:
@@ -197,10 +257,9 @@ for msg in st.session_state.messages:
             # 历史消息中只对最后一条助手消息显示反馈按钮
             is_last = msg is st.session_state.messages[-1]
             if is_last:
-                msg_idx = len([
-                    m for m in st.session_state.messages
-                    if m["role"] == "assistant"
-                ]) - 1
+                msg_idx = (
+                    len([m for m in st.session_state.messages if m["role"] == "assistant"]) - 1
+                )
                 render_feedback_row(msg_idx)
         else:
             st.markdown(content)
@@ -220,9 +279,7 @@ _AGENT_LABELS: dict[str, str] = {
 # ─── Agent 执行（stream_mode="values"） ───
 
 
-async def _run_agent(
-    graph: Any, state: dict, graph_config: dict
-) -> tuple[dict, list[dict], float]:
+async def _run_agent(graph: Any, state: dict, graph_config: dict) -> tuple[dict, list[dict], float]:
     """
     使用 stream_mode="values" 执行 Agent。
 
@@ -239,9 +296,7 @@ async def _run_agent(
 
     final_state: dict = {}
 
-    async for state_update in graph.astream(
-        state, graph_config, stream_mode="values"
-    ):
+    async for state_update in graph.astream(state, graph_config, stream_mode="values"):
         final_state = state_update
 
         # 显示当前执行的 Agent
@@ -274,11 +329,13 @@ async def _run_agent(
     for msg in messages:
         if hasattr(msg, "tool_calls") and msg.tool_calls:
             for tc in msg.tool_calls:
-                tool_calls.append({
-                    "name": tc.get("name", "unknown"),
-                    "args": tc.get("args", {}),
-                    "result": None,  # Tool results are in separate messages
-                })
+                tool_calls.append(
+                    {
+                        "name": tc.get("name", "unknown"),
+                        "args": tc.get("args", {}),
+                        "result": None,  # Tool results are in separate messages
+                    }
+                )
 
     return final_state, tool_calls, elapsed
 
@@ -333,21 +390,17 @@ if prompt := st.chat_input(chat_placeholder):
                 render_design_report(report)
 
                 elapsed = (time.perf_counter() - handler_start) * 1000
-                st.caption(
-                    f"⚡ Quick Design | ⏱️ {elapsed:.0f}ms | "
-                    f"No LLM (纯本地计算)"
-                )
+                st.caption(f"⚡ Quick Design | ⏱️ {elapsed:.0f}ms | No LLM (纯本地计算)")
                 st.caption(MEDICAL_DISCLAIMER)
 
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": (
-                        f"[Quick Design] pH={target_ph}, "
-                        f"mechanism={quick_mech_raw}"
-                    ),
-                    "tool_calls": [],
-                    "design_report": report,
-                })
+                st.session_state.messages.append(
+                    {
+                        "role": "assistant",
+                        "content": (f"[Quick Design] pH={target_ph}, mechanism={quick_mech_raw}"),
+                        "tool_calls": [],
+                        "design_report": report,
+                    }
+                )
                 _save_session(
                     st.session_state.messages,
                     st.session_state.thread_id,
@@ -361,11 +414,13 @@ if prompt := st.chat_input(chat_placeholder):
                 "❌ 无法调用 Agent：未配置 API Key。\n\n"
                 "请在 `.env` 文件中设置 `ANTHROPIC_API_KEY` 或 `DEEPSEEK_API_KEY`。"
             )
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": "[错误] 未配置 API Key",
-                "tool_calls": [],
-            })
+            st.session_state.messages.append(
+                {
+                    "role": "assistant",
+                    "content": "[错误] 未配置 API Key",
+                    "tool_calls": [],
+                }
+            )
         else:
             handler_start = time.perf_counter()
             try:
@@ -396,6 +451,7 @@ if prompt := st.chat_input(chat_placeholder):
                 if report:
                     if isinstance(report, dict):
                         from adc_linker_agent.domain.report import DesignReport
+
                         report = DesignReport.from_dict(report)
                     render_design_report(report)
                     has_structured = True
@@ -430,13 +486,9 @@ if prompt := st.chat_input(chat_placeholder):
                 # 4. 错误面板
                 errors = ctx.get("errors", [])
                 if errors:
-                    with st.expander(
-                        f"⚠️ 处理中遇到 {len(errors)} 个问题", expanded=False
-                    ):
+                    with st.expander(f"⚠️ 处理中遇到 {len(errors)} 个问题", expanded=False):
                         for e in errors:
-                            st.warning(
-                                f"[{e.get('agent', '?')}] {e.get('error', '?')}"
-                            )
+                            st.warning(f"[{e.get('agent', '?')}] {e.get('error', '?')}")
 
                 # ─── 工具调用详情（折叠） ───
                 if tool_calls_made:
@@ -470,13 +522,15 @@ if prompt := st.chat_input(chat_placeholder):
                 )
 
                 # ─── 保存到历史 ───
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": synthesis_text,
-                    "tool_calls": tool_calls_made,
-                    "design_report": ctx.get("design_report"),
-                    "literature_data": ctx.get("literature_data"),
-                })
+                st.session_state.messages.append(
+                    {
+                        "role": "assistant",
+                        "content": synthesis_text,
+                        "tool_calls": tool_calls_made,
+                        "design_report": ctx.get("design_report"),
+                        "literature_data": ctx.get("literature_data"),
+                    }
+                )
 
                 _save_session(
                     st.session_state.messages,
@@ -484,10 +538,9 @@ if prompt := st.chat_input(chat_placeholder):
                 )
 
                 # ─── 反馈按钮 ───
-                assistant_count = len([
-                    m for m in st.session_state.messages
-                    if m["role"] == "assistant"
-                ])
+                assistant_count = len(
+                    [m for m in st.session_state.messages if m["role"] == "assistant"]
+                )
                 render_feedback_row(assistant_count - 1)
 
             except Exception as e:
@@ -501,19 +554,19 @@ if prompt := st.chat_input(chat_placeholder):
                     elapsed_ms=(time.perf_counter() - handler_start) * 1000,
                 )
 
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": f"[错误] {error_msg}",
-                    "tool_calls": [],
-                })
+                st.session_state.messages.append(
+                    {
+                        "role": "assistant",
+                        "content": f"[错误] {error_msg}",
+                        "tool_calls": [],
+                    }
+                )
 
 # ─── 底部操作栏 ───
 
 col1, col2, col3 = st.columns(3)
 with col1:
-    if st.button(
-        "🔄 新对话", help="清除对话历史，开始新会话"
-    ):
+    if st.button("🔄 新对话", help="清除对话历史，开始新会话"):
         st.session_state.messages = []
         st.session_state.thread_id = f"ui_{int(time.time())}"
         st.session_state.tool_history = []
@@ -523,8 +576,7 @@ with col1:
 with col2:
     if st.button("📋 复制对话", help="复制全部对话到剪贴板"):
         text = "\n\n".join(
-            f"{'🧑 用户' if m['role'] == 'user' else '🤖 Agent'}:\n"
-            f"{m['content']}"
+            f"{'🧑 用户' if m['role'] == 'user' else '🤖 Agent'}:\n{m['content']}"
             for m in st.session_state.messages
         )
         st.code(text, language=None)
